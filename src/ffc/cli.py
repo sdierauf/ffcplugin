@@ -40,10 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     output_paths = [output_dir / f"{scan_path.stem}{args.suffix}.dng" for scan_path in inputs]
     for output_path in output_paths:
         if output_path.exists() and not args.dry_run:
-            if args.overwrite and not args.dry_run:
+            if args.replace_existing and not args.dry_run:
                 output_path.unlink()
-            elif not args.overwrite:
-                raise FileExistsError(f"{output_path} already exists; pass --overwrite to replace it.")
+            elif not args.replace_existing:
+                raise FileExistsError(f"{output_path} already exists; pass --replace-existing to replace it.")
 
     if args.dry_run:
         for path in output_paths:
@@ -142,7 +142,11 @@ def _parser() -> argparse.ArgumentParser:
         default=DEFAULT_ORIGINALS_DIR,
         help="Folder for source raws after successful correction. Relative paths are resolved under the input folder.",
     )
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs.")
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help="Replace existing corrected output DNGs.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print planned output paths without writing files.")
     parser.add_argument(
         "--smooth-sigma",

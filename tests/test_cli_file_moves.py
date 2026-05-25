@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ffc.cli import _default_originals_dir, _default_output_dir, _move_originals
+import pytest
+
+from ffc.cli import _default_originals_dir, _default_output_dir, _move_originals, _parser
 
 
 def test_default_paths_are_scan_root_and_originals_subfolder(tmp_path: Path) -> None:
@@ -29,3 +31,13 @@ def test_move_originals_preserves_relative_paths_and_sidecars(tmp_path: Path) ->
     assert not sidecar.exists()
     assert (scan_dir / "originals" / "nested" / "DSC0001.ARW").read_bytes() == b"raw"
     assert (scan_dir / "originals" / "nested" / "DSC0001.XMP").read_text(encoding="utf-8") == "sidecar"
+
+
+def test_replace_existing_is_the_output_replacement_flag() -> None:
+    parser = _parser()
+
+    args = parser.parse_args(["correction.ARW", "scans", "--replace-existing"])
+
+    assert args.replace_existing is True
+    with pytest.raises(SystemExit):
+        parser.parse_args(["correction.ARW", "scans", "--overwrite"])

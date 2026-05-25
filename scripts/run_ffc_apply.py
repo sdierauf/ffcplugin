@@ -105,7 +105,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dust-amount", type=float, default=1.0)
     parser.add_argument("--dust-max-gain", type=float, default=1.10)
     parser.add_argument("--suffix", default="_ffc")
-    parser.add_argument("--overwrite", action="store_true", default=True)
+    parser.add_argument("--replace-existing", action="store_true", default=True)
     return parser.parse_args(argv)
 
 
@@ -295,7 +295,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
     output_paths = [output_dir / f"{path.stem}{args.suffix}.dng" for path in selected]
     for path in output_paths:
-        if path.exists() and args.overwrite:
+        if path.exists() and args.replace_existing:
             path.unlink()
         elif path.exists():
             raise FileExistsError(f"{path} already exists.")

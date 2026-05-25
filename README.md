@@ -44,7 +44,7 @@ The `apple` extra installs MLX for the optional Apple Silicon backend. The defau
 Run flat-field correction on a scan folder:
 
 ```sh
-uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --overwrite
+uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --replace-existing
 ```
 
 Default behavior:
