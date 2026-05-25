@@ -1,0 +1,29 @@
+.DS_Store
+
+# Local source and reference media; keep out of git unless explicitly curated.
+sample scans/
+*.ARW
+*.arw
+*.DNG
+*.dng
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+
+# Python/tooling outputs.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# Lightroom/plugin local state.
+*.lrtemplate
+*.lrcat*
+*.lrdata/
+*.agprefs
+*.log
