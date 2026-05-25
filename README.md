@@ -61,6 +61,17 @@ For the Python pipeline menu item, set the plugin's Python command to an environ
 
 The Python pipeline writes corrected DNGs to a `flatfield-corrected` subfolder next to the selected scans by default, imports them into the catalog, and selects the generated DNGs.
 
+Crop-aware calibration workflow:
+
+1. Import the negatives and a backlight/flat-field image, even if the holder mask is visible in that flat-field raw.
+2. Apply the same Lightroom crop to the negatives and the flat-field image so the mask is outside the visible crop.
+3. Select the negatives plus the flat-field image.
+4. Make the flat-field image the active selected photo.
+5. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+6. Choose `Use Active Photo`.
+
+In that mode the helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, and `CropBottom` develop settings, builds the flat-field gain map only from the cropped calibration region, and writes corrected DNGs whose default crop matches the selected Lightroom crop. If you choose a calibration raw from disk instead, no Lightroom crop metadata is available for that calibration file.
+
 ExifTool is optional but recommended for the Lightroom helper because Lightroom sorts and detects calibration frames more reliably when the duplicate calibration raw has a capture timestamp after the selected batch. Without ExifTool, the helper falls back to changing only filesystem timestamps.
 
 ## Notes

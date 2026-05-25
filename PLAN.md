@@ -68,6 +68,7 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 - Lightroom plugin: implemented in `lightroom-flatfield.lrplugin`.
 - Lightroom staging helper: implemented in `scripts/stage_calibration.py`.
 - Lightroom Python-pipeline helper: implemented in `scripts/run_ffc_apply.py` and exposed as `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+- Crop-aware Python pipeline: when the calibration frame is the active Lightroom selection, the plugin passes Lightroom crop metadata to the helper so masks outside the crop are excluded from the flat-field gain map.
 - Standalone CLI: implemented as `ffc-apply` in `src/ffc`.
 - CLI DNG path: writes uncompressed CFA DNGs directly, then uses open-source `dnglab` or Adobe DNG Converter for lossless compressed mosaic DNGs when available.
 - Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, precomputed per-CFA gain maps, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.

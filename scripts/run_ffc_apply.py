@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import quote
 
@@ -68,6 +69,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--calibration", required=True, help="Flat-field correction raw.")
     parser.add_argument("--selected-list", required=True, help="Text file of selected raw paths.")
+    parser.add_argument("--crop-list", help="Optional Lightroom crop list: path, left, top, right, bottom per line.")
     parser.add_argument("--output-list", required=True, help="Write generated DNG paths here.")
     parser.add_argument("--output-dir", help="Output directory. Defaults to a subfolder beside the first selected scan.")
     parser.add_argument("--output-subdir", default="flatfield-corrected", help="Default output subfolder name.")
@@ -88,6 +90,21 @@ def read_selected(path: Path) -> list[Path]:
         return [Path(line.rstrip("\r\n")).expanduser() for line in handle if line.strip()]
 
 
+def read_crop_list(path: str | None) -> dict[Path, tuple[float, float, float, float]]:
+    if not path:
+        return {}
+
+    crops: dict[Path, tuple[float, float, float, float]] = {}
+    with Path(path).expanduser().open("r", encoding="utf-8") as handle:
+        for line in handle:
+            parts = line.rstrip("\r\n").split("\t")
+            if len(parts) < 5:
+                continue
+            crop = tuple(float(value) for value in parts[1:5])
+            crops[Path(parts[0]).expanduser()] = crop  # type: ignore[assignment]
+    return crops
+
+
 def write_result(path: str | None, values: dict[str, object]) -> None:
     lines = [f"{key}={quote(str(value), safe='')}" for key, value in values.items()]
     text = "\n".join(lines) + "\n"
@@ -101,6 +118,44 @@ def choose_output_dir(args: argparse.Namespace, selected: list[Path]) -> Path:
     if args.output_dir:
         return Path(args.output_dir).expanduser()
     return selected[0].parent / args.output_subdir
+
+
+def crop_for_path(crops: dict[Path, tuple[float, float, float, float]], path: Path) -> tuple[float, float, float, float] | None:
+    if path in crops:
+        return crops[path]
+    resolved = path.resolve()
+    for candidate, crop in crops.items():
+        if candidate.resolve() == resolved:
+            return crop
+    return None
+
+
+def normalized_crop_to_raw_area(metadata, crop: tuple[float, float, float, float]) -> tuple[int, int, int, int]:
+    left_n, top_n, right_n, bottom_n = crop
+    # Lightroom develop crop coordinates use a bottom-left y axis:
+    # full frame is typically CropTop=1 and CropBottom=0.
+    left_f = min(left_n, right_n)
+    right_f = max(left_n, right_n)
+    top_f = 1.0 - max(top_n, bottom_n)
+    bottom_f = 1.0 - min(top_n, bottom_n)
+
+    base_left, base_top = metadata.crop_origin
+    base_w, base_h = metadata.crop_size
+    left = base_left + int(round(_clamp01(left_f) * base_w))
+    top = base_top + int(round(_clamp01(top_f) * base_h))
+    right = base_left + int(round(_clamp01(right_f) * base_w))
+    bottom = base_top + int(round(_clamp01(bottom_f) * base_h))
+
+    raw_h, raw_w = metadata.raw_shape
+    left = max(0, min(raw_w - 1, left))
+    top = max(0, min(raw_h - 1, top))
+    right = max(left + 1, min(raw_w, right))
+    bottom = max(top + 1, min(raw_h, bottom))
+    return left, top, right - left, bottom - top
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
 
 def choose_compressor(args: argparse.Namespace):
@@ -159,11 +214,14 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
     output_dir = choose_output_dir(args, selected)
     output_dir.mkdir(parents=True, exist_ok=True)
+    crops = read_crop_list(args.crop_list)
 
     compressor, compressor_path, resolved_compression = choose_compressor(args)
     backend = choose_backend(args.backend)
     correction = read_raw_frame(calibration)
-    profile = build_profile(correction, smooth_sigma=args.smooth_sigma)
+    calibration_crop = crop_for_path(crops, calibration)
+    active_area = normalized_crop_to_raw_area(correction.metadata, calibration_crop) if calibration_crop else None
+    profile = build_profile(correction, smooth_sigma=args.smooth_sigma, active_area=active_area)
 
     output_paths = [output_dir / f"{path.stem}{args.suffix}.dng" for path in selected]
     for path in output_paths:
@@ -185,8 +243,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         for selected_path, output_path in zip(selected, output_paths, strict=True):
             scan = read_raw_frame(selected_path)
             corrected = apply_profile(scan, profile, backend=backend)
+            metadata = scan.metadata
+            scan_crop = crop_for_path(crops, selected_path)
+            if scan_crop:
+                left, top, width, height = normalized_crop_to_raw_area(metadata, scan_crop)
+                metadata = replace(metadata, crop_origin=(left, top), crop_size=(width, height))
             temp_path = write_dir / output_path.name
-            write_mosaic_dng(temp_path, corrected, scan.metadata, software="ffcplugin")
+            write_mosaic_dng(temp_path, corrected, metadata, software="ffcplugin")
             temp_paths.append(temp_path)
 
         if compressor == "dnglab":
@@ -213,6 +276,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "backend": backend.name,
         "compressor": compressor,
         "compression": resolved_compression,
+        "crop_aware": "true" if active_area else "false",
         "warning": "" if compressor != "none" else "No compact DNG compressor was used; outputs are uncompressed and large.",
     }
 

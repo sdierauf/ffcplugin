@@ -125,6 +125,18 @@ local function chooseCalibrationPath()
     return nil
 end
 
+local function getPhotoPath(photo)
+    local ok, path = LrTasks.pcall(function()
+        return photo:getRawMetadata("path")
+    end)
+
+    if ok and path and path ~= "" then
+        return path
+    end
+
+    return nil
+end
+
 local function getSelectedPhotos(catalog)
     local activePhoto = catalog:getTargetPhoto()
     if not activePhoto then
@@ -144,16 +156,115 @@ local function getPhotoPaths(photos)
     local paths = {}
 
     for _, photo in ipairs(photos) do
-        local ok, path = LrTasks.pcall(function()
-            return photo:getRawMetadata("path")
-        end)
-
-        if ok and path and path ~= "" then
+        local path = getPhotoPath(photo)
+        if path then
             table.insert(paths, path)
         end
     end
 
     return paths
+end
+
+local function chooseCalibration(catalog, photos)
+    local activePhoto = catalog:getTargetPhoto()
+    local activePath = activePhoto and getPhotoPath(activePhoto)
+
+    if activePath then
+        local choice = LrDialogs.confirm(
+            "Choose calibration source",
+            "Use the active selected photo as the flat-field calibration frame, or choose a raw file from disk.",
+            "Use Active Photo",
+            "Choose File",
+            "Cancel"
+        )
+
+        if choice == "ok" then
+            local scanPhotos = {}
+            for _, photo in ipairs(photos) do
+                if photo ~= activePhoto then
+                    table.insert(scanPhotos, photo)
+                end
+            end
+            if #scanPhotos == 0 then
+                error("When using the active selected photo as the calibration frame, select at least one scan photo too.", 0)
+            end
+            return activePath, scanPhotos, activePhoto
+        elseif choice == "other" then
+            return nil, nil, nil
+        end
+    end
+
+    local calibrationPath = chooseCalibrationPath()
+    if not calibrationPath then
+        return nil, nil, nil
+    end
+
+    return calibrationPath, photos, nil
+end
+
+local function cropValue(settings, key, defaultValue)
+    local value = settings and settings[key]
+    if value == nil then
+        return defaultValue
+    end
+    return value
+end
+
+local function getDevelopCrop(photo)
+    local ok, settings = LrTasks.pcall(function()
+        return photo:getDevelopSettings()
+    end)
+
+    if not ok or not settings then
+        return nil
+    end
+
+    return {
+        left = cropValue(settings, "CropLeft", 0),
+        top = cropValue(settings, "CropTop", 1),
+        right = cropValue(settings, "CropRight", 1),
+        bottom = cropValue(settings, "CropBottom", 0),
+        angle = cropValue(settings, "CropAngle", 0),
+        orientation = cropValue(settings, "orientation", "AB"),
+    }
+end
+
+local function cropLine(path, crop)
+    return table.concat({
+        path,
+        tostring(crop.left),
+        tostring(crop.top),
+        tostring(crop.right),
+        tostring(crop.bottom),
+        tostring(crop.angle),
+        tostring(crop.orientation),
+    }, "\t")
+end
+
+local function writeCropList(path, photos, calibrationPhoto)
+    local lines = {}
+    local seen = {}
+
+    for _, photo in ipairs(photos) do
+        local photoPath = getPhotoPath(photo)
+        local crop = getDevelopCrop(photo)
+        if photoPath and crop then
+            table.insert(lines, cropLine(photoPath, crop))
+            seen[photoPath] = true
+        end
+    end
+
+    if calibrationPhoto then
+        local calibrationPath = getPhotoPath(calibrationPhoto)
+        if calibrationPath and not seen[calibrationPath] then
+            local crop = getDevelopCrop(calibrationPhoto)
+            if crop then
+                table.insert(lines, cropLine(calibrationPath, crop))
+            end
+        end
+    end
+
+    return writeTextFile(path, table.concat(lines, "\n") .. "\n")
 end
 
 local function addOptional(parts, flag, value)
@@ -163,7 +274,7 @@ local function addOptional(parts, flag, value)
     end
 end
 
-local function buildCommand(settings, calibrationPath, selectedListPath, outputListPath, resultPath)
+local function buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, resultPath)
     local parts = {
         commandPrefix(settings.pythonCommand),
         shellQuote(settings.applyScriptPath),
@@ -171,6 +282,8 @@ local function buildCommand(settings, calibrationPath, selectedListPath, outputL
         shellQuote(calibrationPath),
         "--selected-list",
         shellQuote(selectedListPath),
+        "--crop-list",
+        shellQuote(cropListPath),
         "--output-list",
         shellQuote(outputListPath),
         "--result-file",
@@ -257,14 +370,14 @@ local function run()
             fail("Select one or more raw scan photos before running the Python flat-field pipeline.")
         end
 
-        local photoPaths = getPhotoPaths(photos)
-        if #photoPaths == 0 then
-            fail("Lightroom did not provide filesystem paths for the selected photos.")
-        end
-
-        local calibrationPath = chooseCalibrationPath()
+        local calibrationPath, scanPhotos, calibrationPhoto = chooseCalibration(catalog, photos)
         if not calibrationPath then
             return
+        end
+
+        local photoPaths = getPhotoPaths(scanPhotos)
+        if #photoPaths == 0 then
+            fail("Lightroom did not provide filesystem paths for the selected photos.")
         end
 
         local settings = Settings.effective()
@@ -273,9 +386,11 @@ local function run()
         end
 
         local selectedListPath = tempPath("-selected.txt")
+        local cropListPath = tempPath("-crops.txt")
         local outputListPath = tempPath("-outputs.txt")
         local resultPath = tempPath("-result.txt")
         table.insert(tempFiles, selectedListPath)
+        table.insert(tempFiles, cropListPath)
         table.insert(tempFiles, outputListPath)
         table.insert(tempFiles, resultPath)
 
@@ -284,7 +399,12 @@ local function run()
             fail("Could not write selected-photo list: " .. tostring(writeErr))
         end
 
-        local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, outputListPath, resultPath))
+        local wroteCrops, cropErr = writeCropList(cropListPath, scanPhotos, calibrationPhoto)
+        if not wroteCrops then
+            fail("Could not write crop list: " .. tostring(cropErr))
+        end
+
+        local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, resultPath))
         local result = parseResult(readTextFile(resultPath))
 
         if exitCode ~= 0 or result.status ~= "ok" then
