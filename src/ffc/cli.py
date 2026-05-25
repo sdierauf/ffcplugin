@@ -70,6 +70,11 @@ def main(argv: list[str] | None = None) -> int:
         smooth_sigma=args.smooth_sigma,
         clip_percentiles=(args.clip_low, args.clip_high),
         norm_percentile=args.norm_percentile,
+        dust_correction=args.dust_correction,
+        dust_sigma=args.dust_sigma,
+        dust_threshold=args.dust_threshold,
+        dust_amount=args.dust_amount,
+        dust_max_gain=args.dust_max_gain,
     )
 
     use_converter = compressor != "none"
@@ -152,6 +157,35 @@ def _parser() -> argparse.ArgumentParser:
         type=float,
         default=70.0,
         help="Correction-frame percentile used as the flat-field normalization point. 70 is closest to Lightroom on the sample set.",
+    )
+    parser.add_argument(
+        "--dust-correction",
+        action="store_true",
+        help="Blend capped dark blob detail from the calibration frame into the smoothed flat-field profile.",
+    )
+    parser.add_argument(
+        "--dust-sigma",
+        type=float,
+        default=32.0,
+        help="Fine-scale Gaussian sigma in full-resolution pixels for optional dust correction.",
+    )
+    parser.add_argument(
+        "--dust-threshold",
+        type=float,
+        default=0.02,
+        help="Minimum dark calibration-frame residual, as a fraction, before optional dust correction applies.",
+    )
+    parser.add_argument(
+        "--dust-amount",
+        type=float,
+        default=1.0,
+        help="Strength of optional dust detail correction after thresholding.",
+    )
+    parser.add_argument(
+        "--dust-max-gain",
+        type=float,
+        default=1.10,
+        help="Maximum extra local gain allowed by optional dust correction.",
     )
     parser.add_argument(
         "--backend",

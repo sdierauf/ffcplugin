@@ -67,6 +67,7 @@ uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
 uv run ffc-apply correctionimage.ARW scans/ --norm-percentile 50
+uv run ffc-apply correctionimage.ARW scans/ --dust-correction --dust-sigma 32 --dust-max-gain 1.10
 ```
 
 Backends:
@@ -123,7 +124,8 @@ Use this when you want this repo's raw/DNG implementation from inside Lightroom.
 3. Choose a calibration source:
    - `Use Active Photo` uses the active selected Lightroom photo as the calibration frame and removes it from the scan list.
    - `Choose File` picks an uncataloged raw from disk.
-4. The plugin writes corrected DNGs to a `flatfield-corrected/` subfolder next to the selected scans, imports them into Lightroom, and selects the generated DNGs.
+4. Choose whether to enable `Attempt dust correction`. The checkbox is off by default and Lightroom remembers your last choice.
+5. The plugin writes corrected DNGs to a `flatfield-corrected/` subfolder next to the selected scans, imports them into Lightroom, and selects the generated DNGs.
 
 This Lightroom command does not move already-imported source raws; moving them would make Lightroom catalog entries go missing. The standalone CLI is the workflow that archives source raws into `originals/`.
 
@@ -149,6 +151,7 @@ Corrected DNGs receive an axis-aligned default crop that bounds the selected Lig
 - The flat-field profile is built per CFA phase from black-subtracted raw values; smoothing is done once per correction frame.
 - The default smoothing sigma is `192` full-resolution pixels. Use `--smooth-sigma 96` for the previous default or `--smooth-sigma 0` to disable smoothing.
 - The default flat-field normalization uses the 70th percentile of the smoothed correction frame. On the sample set, this is closer to Lightroom Classic's output than median normalization. Use `--norm-percentile 50` for the previous median behavior.
+- Optional dust detail correction is available in the CLI with `--dust-correction` and in Lightroom with the remembered `Attempt dust correction` apply option. It keeps the broad smoothed flat-field profile, detects only dark calibration-frame residuals at `--dust-sigma`, and caps their extra local gain with `--dust-max-gain`. Use this only for sensor/backlight dust fixed across the calibration and scan frames.
 - If neither `dnglab` nor Adobe DNG Converter is available, output DNGs are valid but uncompressed and therefore large.
 - The DNG writer preserves raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, Lightroom XMP, or all EXIF sub-IFDs from the source raw.
 - Keep calibration frames matched to the same light source, camera, lens, aperture, focus distance, and scan geometry whenever possible.

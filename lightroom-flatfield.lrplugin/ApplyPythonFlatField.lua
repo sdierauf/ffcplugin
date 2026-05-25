@@ -1,11 +1,15 @@
 local LrApplication = import "LrApplication"
+local LrBinding = import "LrBinding"
 local LrDialogs = import "LrDialogs"
 local LrFileUtils = import "LrFileUtils"
+local LrFunctionContext = import "LrFunctionContext"
 local LrPathUtils = import "LrPathUtils"
 local LrProgressScope = import "LrProgressScope"
 local LrTasks = import "LrTasks"
+local LrView = import "LrView"
 
 local Settings = require "Settings"
+local bind = LrView.bind
 
 local function trim(value)
     if value == nil then
@@ -308,6 +312,47 @@ local function addOptional(parts, flag, value)
     end
 end
 
+local function truthy(value)
+    value = trim(value):lower()
+    return value == "1" or value == "true" or value == "yes" or value == "on"
+end
+
+local function chooseApplyOptions(settings)
+    local chosenSettings = nil
+
+    LrFunctionContext.callWithContext("PythonFlatFieldApplyOptions", function(context)
+        local f = LrView.osFactory()
+        local properties = LrBinding.makePropertyTable(context)
+        properties.attemptDustCorrection = truthy(settings.dustCorrection)
+
+        local contents = f:column {
+            bind_to_object = properties,
+            spacing = f:control_spacing(),
+
+            f:checkbox {
+                title = "Attempt dust correction",
+                value = bind "attemptDustCorrection",
+            },
+        }
+
+        local result = LrDialogs.presentModalDialog {
+            title = "Python Flat-Field Options",
+            contents = contents,
+            actionVerb = "Apply",
+        }
+
+        if result == "ok" then
+            settings.dustCorrection = properties.attemptDustCorrection and "true" or "false"
+            Settings.saveApplyOptions {
+                dustCorrection = settings.dustCorrection,
+            }
+            chosenSettings = settings
+        end
+    end)
+
+    return chosenSettings
+end
+
 local function fail(message)
     error(message, 0)
 end
@@ -342,7 +387,19 @@ local function buildCommand(settings, calibrationPath, selectedListPath, cropLis
         shellQuote(settings.smoothSigma),
         "--norm-percentile",
         shellQuote(settings.normPercentile),
+        "--dust-sigma",
+        shellQuote(settings.dustSigma),
+        "--dust-threshold",
+        shellQuote(settings.dustThreshold),
+        "--dust-amount",
+        shellQuote(settings.dustAmount),
+        "--dust-max-gain",
+        shellQuote(settings.dustMaxGain),
     }
+
+    if truthy(settings.dustCorrection) then
+        table.insert(parts, "--dust-correction")
+    end
 
     addOptional(parts, "--dnglab", settings.dnglabPath)
     addOptional(parts, "--dng-converter", settings.dngConverterPath)
@@ -538,6 +595,11 @@ local function run()
         local settings = Settings.effective()
         if not Settings.pathExists(settings.applyScriptPath) then
             fail("The Python apply helper was not found:\n\n" .. settings.applyScriptPath .. "\n\nUse Configure Flat-Field Stager to choose scripts/run_ffc_apply.py.")
+        end
+
+        settings = chooseApplyOptions(settings)
+        if not settings then
+            return
         end
 
         local selectedListPath = tempPath("-selected.txt")

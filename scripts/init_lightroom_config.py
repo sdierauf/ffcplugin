@@ -35,6 +35,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--smooth-sigma", default="192")
     parser.add_argument("--norm-percentile", default="70")
+    parser.add_argument("--dust-sigma", default="32")
+    parser.add_argument("--dust-threshold", default="0.02")
+    parser.add_argument("--dust-amount", default="1.0")
+    parser.add_argument("--dust-max-gain", default="1.10")
     parser.add_argument("--output-subfolder", default="flatfield-corrected")
     parser.add_argument("--no-install", action="store_true", help="Do not install missing Homebrew packages.")
     parser.add_argument("--skip-uv-sync", action="store_true", help="Do not run uv sync.")
@@ -67,6 +71,10 @@ def main() -> int:
         "compression": args.compression,
         "smoothSigma": args.smooth_sigma,
         "normPercentile": args.norm_percentile,
+        "dustSigma": args.dust_sigma,
+        "dustThreshold": args.dust_threshold,
+        "dustAmount": args.dust_amount,
+        "dustMaxGain": args.dust_max_gain,
         "dnglabPath": find_executable("dnglab"),
         "dngConverterPath": find_adobe_dng_converter(),
     }

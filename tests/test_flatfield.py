@@ -126,3 +126,53 @@ def test_profile_accepts_rotated_crop_active_mask() -> None:
     corrected = apply_profile(RawFrame(meta, scan), profile, backend=Backend("numpy", "test"))
 
     assert np.all(corrected[:, 2:] == 2000)
+
+
+def test_optional_dust_detail_corrects_capped_dark_blob() -> None:
+    pattern = np.array([[0, 1], [3, 2]], dtype=np.uint8)
+    correction = np.full((80, 80), 2000, dtype=np.uint16)
+    scan = np.full((80, 80), 2000, dtype=np.uint16)
+    yy, xx = np.ogrid[:80, :80]
+    blob = (yy - 40) ** 2 + (xx - 40) ** 2 <= 8**2
+    correction[blob] = 1600
+    scan[blob] = 1600
+    meta = RawMetadata(
+        path=__import__("pathlib").Path("scan.ARW"),
+        make="SONY",
+        model="TEST",
+        unique_camera_model="Sony TEST",
+        timestamp=None,
+        raw_shape=(80, 80),
+        crop_origin=(0, 0),
+        crop_size=(80, 80),
+        raw_pattern=pattern,
+        dng_cfa_pattern=(0, 1, 1, 2),
+        dng_cfa_repeat_dim=(2, 2),
+        black_level_by_phase=(0.0, 0.0, 0.0, 0.0),
+        white_level=16383,
+        color_matrix=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+        as_shot_neutral=(1.0, 1.0, 1.0),
+        original_filename="scan.ARW",
+    )
+
+    broad_profile = build_profile(
+        RawFrame(meta, correction),
+        smooth_sigma=32,
+        clip_percentiles=None,
+    )
+    dust_profile = build_profile(
+        RawFrame(meta, correction),
+        smooth_sigma=32,
+        clip_percentiles=None,
+        dust_correction=True,
+        dust_sigma=4,
+        dust_threshold=0.01,
+        dust_max_gain=1.10,
+    )
+
+    broad_corrected = apply_profile(RawFrame(meta, scan), broad_profile, backend=Backend("numpy", "test"))
+    dust_corrected = apply_profile(RawFrame(meta, scan), dust_profile, backend=Backend("numpy", "test"))
+
+    assert int(dust_corrected[40, 40]) > int(broad_corrected[40, 40])
+    assert int(dust_corrected[40, 40]) <= 1780
+    assert abs(int(dust_corrected[10, 10]) - 2000) <= 5

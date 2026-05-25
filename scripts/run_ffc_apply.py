@@ -99,6 +99,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dng-converter", help="Optional Adobe DNG Converter executable or .app path.")
     parser.add_argument("--smooth-sigma", type=float, default=192.0)
     parser.add_argument("--norm-percentile", type=float, default=70.0)
+    parser.add_argument("--dust-correction", action="store_true")
+    parser.add_argument("--dust-sigma", type=float, default=32.0)
+    parser.add_argument("--dust-threshold", type=float, default=0.02)
+    parser.add_argument("--dust-amount", type=float, default=1.0)
+    parser.add_argument("--dust-max-gain", type=float, default=1.10)
     parser.add_argument("--suffix", default="_ffc")
     parser.add_argument("--overwrite", action="store_true", default=True)
     return parser.parse_args(argv)
@@ -281,6 +286,11 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         smooth_sigma=args.smooth_sigma,
         norm_percentile=args.norm_percentile,
         active_mask=active_mask,
+        dust_correction=args.dust_correction,
+        dust_sigma=args.dust_sigma,
+        dust_threshold=args.dust_threshold,
+        dust_amount=args.dust_amount,
+        dust_max_gain=args.dust_max_gain,
     )
 
     output_paths = [output_dir / f"{path.stem}{args.suffix}.dng" for path in selected]
@@ -358,6 +368,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "compression": resolved_compression,
         "crop_aware": "true" if active_mask is not None else "false",
         "norm_percentile": args.norm_percentile,
+        "dust_correction": "true" if args.dust_correction else "false",
         "warning": "" if compressor != "none" else "No compact DNG compressor was used; outputs are uncompressed and large.",
     }
 

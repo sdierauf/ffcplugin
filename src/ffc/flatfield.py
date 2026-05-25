@@ -32,6 +32,11 @@ def build_profile(
     norm_percentile: float = 70.0,
     active_area: tuple[int, int, int, int] | None = None,
     active_mask: np.ndarray | None = None,
+    dust_correction: bool = False,
+    dust_sigma: float = 32.0,
+    dust_threshold: float = 0.02,
+    dust_amount: float = 1.0,
+    dust_max_gain: float = 1.10,
 ) -> FlatFieldProfile:
     if active_area is not None and active_mask is not None:
         raise ValueError("Pass active_area or active_mask, not both.")
@@ -75,6 +80,7 @@ def build_profile(
             np.clip(plane, max(1.0, float(low)), max(1.0, float(high)), out=plane)
             active_plane = active_values()
 
+        detail_source = plane.copy() if dust_correction else None
         if smooth_sigma > 0:
             sigma = (smooth_sigma / pattern_h, smooth_sigma / pattern_w)
             if crop_mask is not None:
@@ -86,6 +92,21 @@ def build_profile(
             else:
                 plane = _masked_gaussian(plane, crop_rows, crop_cols, sigma)
                 active_plane = plane[crop_rows, crop_cols]
+
+        if detail_source is not None:
+            dust_sigma_by_phase = (dust_sigma / pattern_h, dust_sigma / pattern_w)
+            plane = _add_dark_detail_layer(
+                detail_source,
+                plane,
+                crop_rows,
+                crop_cols,
+                crop_mask,
+                sigma=dust_sigma_by_phase,
+                threshold=dust_threshold,
+                amount=dust_amount,
+                max_gain=dust_max_gain,
+            )
+            active_plane = active_values()
 
         norm = float(np.percentile(_sample_active(active_plane), norm_percentile))
         eps = max(1.0, norm * 0.001)
@@ -167,6 +188,77 @@ def _masked_gaussian_mask(plane: np.ndarray, active_mask: np.ndarray, sigma: tup
     smoothed = np.full_like(plane, fill, dtype=np.float32)
     np.divide(smooth_values, smooth_weights, out=smoothed, where=smooth_weights > 1.0e-6)
     return smoothed
+
+
+def _add_dark_detail_layer(
+    source: np.ndarray,
+    broad: np.ndarray,
+    rows: slice,
+    cols: slice,
+    active_mask: np.ndarray | None,
+    *,
+    sigma: tuple[float, float],
+    threshold: float,
+    amount: float,
+    max_gain: float,
+) -> np.ndarray:
+    if amount <= 0 or max_gain <= 1 or sigma[0] <= 0 or sigma[1] <= 0:
+        return broad
+
+    if active_mask is not None:
+        fine = _masked_gaussian_mask(source, active_mask, sigma)
+    elif _is_full_slice(rows, source.shape[0]) and _is_full_slice(cols, source.shape[1]):
+        fine = gaussian_filter(source, sigma=sigma, mode="nearest", truncate=3.0).astype(np.float32, copy=False)
+    else:
+        fine = _masked_gaussian(source, rows, cols, sigma)
+
+    corrected = broad.copy()
+    min_factor = 1.0 / float(max_gain)
+    threshold = max(0.0, float(threshold))
+    amount = max(0.0, float(amount))
+
+    if active_mask is not None:
+        _apply_dark_detail(corrected, broad, fine, active_mask, threshold, amount, min_factor)
+    elif _is_full_slice(rows, source.shape[0]) and _is_full_slice(cols, source.shape[1]):
+        _apply_dark_detail(corrected, broad, fine, None, threshold, amount, min_factor)
+    else:
+        region = (rows, cols)
+        _apply_dark_detail(corrected, broad, fine, region, threshold, amount, min_factor)
+
+    return corrected
+
+
+def _apply_dark_detail(
+    output: np.ndarray,
+    broad: np.ndarray,
+    fine: np.ndarray,
+    selector: np.ndarray | tuple[slice, slice] | None,
+    threshold: float,
+    amount: float,
+    min_factor: float,
+) -> None:
+    if selector is None:
+        broad_values = broad
+        fine_values = fine
+    else:
+        broad_values = broad[selector]
+        fine_values = fine[selector]
+
+    ratio = fine_values / np.maximum(broad_values, 1.0)
+    darkness = np.maximum(0.0, 1.0 - ratio - threshold)
+    factor = np.maximum(min_factor, 1.0 - amount * darkness)
+
+    if selector is None:
+        np.multiply(broad_values, factor, out=output)
+    else:
+        output[selector] = broad_values * factor
+
+
+def _is_full_slice(value: slice, size: int) -> bool:
+    start = 0 if value.start is None else value.start
+    stop = size if value.stop is None else value.stop
+    step = 1 if value.step is None else value.step
+    return start == 0 and stop == size and step == 1
 
 
 def _sample_active(values: np.ndarray) -> np.ndarray:

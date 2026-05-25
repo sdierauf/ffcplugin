@@ -96,6 +96,15 @@ local function valueFor(settings, config, key, defaultValue)
     return defaultValue or ""
 end
 
+local function prefValueFor(settings, key, defaultValue)
+    local prefValue = trim(settings[key])
+    if prefValue ~= "" then
+        return prefValue
+    end
+
+    return defaultValue or ""
+end
+
 local function setDisplay(properties, values)
     properties.pythonCommand = values.pythonCommand
     properties.helperScriptPath = values.helperScriptPath
@@ -107,6 +116,11 @@ local function setDisplay(properties, values)
     properties.compression = values.compression
     properties.smoothSigma = values.smoothSigma
     properties.normPercentile = values.normPercentile
+    properties.dustCorrection = values.dustCorrection
+    properties.dustSigma = values.dustSigma
+    properties.dustThreshold = values.dustThreshold
+    properties.dustAmount = values.dustAmount
+    properties.dustMaxGain = values.dustMaxGain
     properties.dnglabPath = Settings.displayValue(values.dnglabPath, "(auto)")
     properties.dngConverterPath = Settings.displayValue(values.dngConverterPath, "(auto)")
     properties.pipelineSummary = "backend=" .. values.backend
@@ -114,6 +128,7 @@ local function setDisplay(properties, values)
         .. ", compression=" .. values.compression
         .. ", smoothSigma=" .. values.smoothSigma
         .. ", normPercentile=" .. values.normPercentile
+        .. ", dustCorrection=" .. values.dustCorrection
     if values.configError and values.configError ~= "" then
         properties.configStatus = values.configError
     else
@@ -196,6 +211,11 @@ function Settings.get()
         compression = trim(prefs.compression),
         smoothSigma = trim(prefs.smoothSigma),
         normPercentile = trim(prefs.normPercentile),
+        dustCorrection = trim(prefs.dustCorrection),
+        dustSigma = trim(prefs.dustSigma),
+        dustThreshold = trim(prefs.dustThreshold),
+        dustAmount = trim(prefs.dustAmount),
+        dustMaxGain = trim(prefs.dustMaxGain),
         dnglabPath = trim(prefs.dnglabPath),
         dngConverterPath = trim(prefs.dngConverterPath),
     }
@@ -219,6 +239,11 @@ function Settings.effective(settings)
         compression = valueFor(settings, config, "compression", "auto"),
         smoothSigma = valueFor(settings, config, "smoothSigma", "192"),
         normPercentile = valueFor(settings, config, "normPercentile", "70"),
+        dustCorrection = prefValueFor(settings, "dustCorrection", "false"),
+        dustSigma = valueFor(settings, config, "dustSigma", "32"),
+        dustThreshold = valueFor(settings, config, "dustThreshold", "0.02"),
+        dustAmount = valueFor(settings, config, "dustAmount", "1.0"),
+        dustMaxGain = valueFor(settings, config, "dustMaxGain", "1.10"),
         dnglabPath = valueFor(settings, config, "dnglabPath", ""),
         dngConverterPath = valueFor(settings, config, "dngConverterPath", ""),
     }
@@ -236,8 +261,19 @@ function Settings.save(settings)
     prefs.compression = trim(settings.compression)
     prefs.smoothSigma = trim(settings.smoothSigma)
     prefs.normPercentile = trim(settings.normPercentile)
+    if settings.dustCorrection ~= nil then
+        prefs.dustCorrection = trim(settings.dustCorrection)
+    end
+    prefs.dustSigma = trim(settings.dustSigma)
+    prefs.dustThreshold = trim(settings.dustThreshold)
+    prefs.dustAmount = trim(settings.dustAmount)
+    prefs.dustMaxGain = trim(settings.dustMaxGain)
     prefs.dnglabPath = trim(settings.dnglabPath)
     prefs.dngConverterPath = trim(settings.dngConverterPath)
+end
+
+function Settings.saveApplyOptions(settings)
+    prefs.dustCorrection = trim(settings.dustCorrection)
 end
 
 function Settings.displayValue(value, defaultValue)
@@ -264,7 +300,9 @@ function Settings.showDialog()
         setDisplay(properties, effective)
 
         local function reloadConfig()
-            local reloaded = Settings.effective { configPath = properties.configPath }
+            local currentSettings = Settings.get()
+            currentSettings.configPath = properties.configPath
+            local reloaded = Settings.effective(currentSettings)
             setDisplay(properties, reloaded)
         end
 

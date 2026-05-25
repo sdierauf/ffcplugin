@@ -76,6 +76,7 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 - Lightroom progress reporting: plugin commands use Lightroom progress scopes; the Python pipeline writes a progress file that the plugin polls for per-photo status.
 - Lightroom config bootstrap: implemented in `scripts/init_lightroom_config.py`; it installs missing Homebrew command-line dependencies, syncs the uv venv, and writes `lightroom-flatfield.lrplugin/ffcplugin.config` for the plugin to load.
 - Crop-aware Python pipeline: when the calibration frame is the active Lightroom selection, the plugin passes Lightroom crop metadata to the helper so masks outside the crop are excluded from the flat-field gain map. Rotated/straightened Lightroom crops are modeled as polygon masks, and adjusted crop settings are reapplied to imported DNGs from the Lightroom plugin.
+- Optional dust detail correction: implemented as a capped multi-scale detail layer that blends only dark blob-like calibration residuals into the broad flat-field profile. The CLI exposes this as an explicit flag; the Lightroom apply command exposes a remembered, default-off `Attempt dust correction` option.
 - Standalone CLI: implemented as `ffc-apply` in `src/ffc`.
 - CLI DNG path: writes uncompressed CFA DNGs directly, then uses open-source `dnglab` or Adobe DNG Converter for lossless compressed mosaic DNGs when available.
 - Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, precomputed per-CFA gain maps, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.
