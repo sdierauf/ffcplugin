@@ -95,10 +95,12 @@ Use this when you want Lightroom Classic's built-in correction.
 1. Select the scans in Library.
 2. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...`.
 3. Pick an existing calibration raw from disk.
-4. The plugin copies that raw beside the selected batch, timestamps it after the latest selected photo when ExifTool is available, imports it, and selects the scans plus the staged calibration frame.
+4. The plugin copies that raw beside the selected batch, timestamps it after the latest selected photo when ExifTool is available, imports it, adds it to the active regular collection source when Lightroom is currently showing one, and selects the scans plus the staged calibration frame.
 5. Run Lightroom's `Library > Flat-Field Correction`.
 
 ExifTool is optional but recommended for this staging workflow because Lightroom's built-in FFC is sensitive to capture order.
+
+If the active source is a smart collection or collection set, Lightroom does not allow the plugin to manually add the staged frame there; the plugin will warn you and still import/select the staged frame where possible.
 
 ### Run The Python Pipeline
 

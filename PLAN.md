@@ -40,7 +40,8 @@ That requirement is awkward for film scanning because a reusable backlight calib
 5. Copy the calibration raw to a new filename that sorts after the selected scans.
 6. Use a helper script and ExifTool when available to rewrite only date/time metadata on the copied calibration frame so Lightroom sees it after the batch. Fall back to filesystem modification time if ExifTool is unavailable.
 7. Import the staged calibration file with `catalog:addPhoto`.
-8. Select the original scans plus the staged calibration photo, then instruct the user to run Lightroom's built-in `Library > Flat-Field Correction`.
+8. Add the staged photo to any active regular collection source so it appears in the user's current Lightroom working set.
+9. Select the original scans plus the staged calibration photo, then instruct the user to run Lightroom's built-in `Library > Flat-Field Correction`.
 
 The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-Field Correction command directly, so the plugin stages and selects the batch rather than trying to automate that private command.
 

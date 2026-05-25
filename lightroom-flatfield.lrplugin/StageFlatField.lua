@@ -143,6 +143,93 @@ local function getPhotoPaths(photos)
     return paths
 end
 
+local function getActiveSources(catalog)
+    local ok, sources = LrTasks.pcall(function()
+        return catalog:getActiveSources()
+    end)
+
+    if not ok or not sources then
+        return {}
+    end
+
+    if type(sources) ~= "table" then
+        return { sources }
+    end
+
+    return sources
+end
+
+local function sourceType(source)
+    if type(source) == "string" then
+        return source
+    end
+
+    local ok, value = LrTasks.pcall(function()
+        return source:type()
+    end)
+
+    if ok then
+        return value
+    end
+
+    return nil
+end
+
+local function sourceName(source)
+    if type(source) == "string" then
+        return source
+    end
+
+    local ok, value = LrTasks.pcall(function()
+        return source:getName()
+    end)
+
+    if ok and value then
+        return value
+    end
+
+    return tostring(source)
+end
+
+local function addStagedPhotoToActiveSources(activeSources, stagedPhoto)
+    local addedCount = 0
+    local warnings = {}
+
+    for _, source in ipairs(activeSources or {}) do
+        local kind = sourceType(source)
+
+        if kind == "LrCollection" or kind == "LrPublishedCollection" then
+            local okSmart, isSmart = LrTasks.pcall(function()
+                return source:isSmartCollection()
+            end)
+
+            if okSmart and isSmart then
+                table.insert(warnings, "The active source '" .. sourceName(source) .. "' is a smart collection, so Lightroom cannot manually add the staged calibration frame to it.")
+            else
+                local okAdd, addErr = LrTasks.pcall(function()
+                    source:addPhotos({ stagedPhoto })
+                end)
+
+                if okAdd then
+                    addedCount = addedCount + 1
+                else
+                    table.insert(warnings, "Could not add the staged calibration frame to '" .. sourceName(source) .. "': " .. tostring(addErr))
+                end
+            end
+        elseif kind == "LrCollectionSet" or kind == "LrPublishedCollectionSet" then
+            table.insert(warnings, "The active source '" .. sourceName(source) .. "' is a collection set, which cannot directly contain photos. Select a regular collection or folder before staging if you need the calibration frame visible there.")
+        end
+    end
+
+    return addedCount, warnings
+end
+
+local function appendWarnings(target, values)
+    for _, value in ipairs(values or {}) do
+        table.insert(target, value)
+    end
+end
+
 local function buildCommand(settings, calibrationPath, selectedListPath, resultPath)
     local parts = {
         commandPrefix(settings.pythonCommand),
@@ -163,17 +250,22 @@ local function buildCommand(settings, calibrationPath, selectedListPath, resultP
     return table.concat(parts, " ")
 end
 
-local function importStagedPhoto(catalog, stagedPath)
+local function importStagedPhoto(catalog, stagedPath, activeSources)
     local stagedPhoto = nil
+    local addedCount = 0
+    local warnings = {}
 
     local ok, err = LrTasks.pcall(function()
-        stagedPhoto = catalog:findPhotoByPath(stagedPath)
-
-        if not stagedPhoto then
-            catalog:withWriteAccessDo("Import flat-field calibration frame", function()
+        catalog:withWriteAccessDo("Import flat-field calibration frame", function()
+            stagedPhoto = catalog:findPhotoByPath(stagedPath)
+            if not stagedPhoto then
                 stagedPhoto = catalog:addPhoto(stagedPath)
-            end)
-        end
+            end
+
+            if stagedPhoto then
+                addedCount, warnings = addStagedPhotoToActiveSources(activeSources, stagedPhoto)
+            end
+        end)
     end)
 
     if not ok then
@@ -184,7 +276,23 @@ local function importStagedPhoto(catalog, stagedPath)
         return nil, "Lightroom did not return a catalog photo for " .. stagedPath
     end
 
-    return stagedPhoto
+    return stagedPhoto, nil, addedCount, warnings
+end
+
+local function restoreActiveSources(catalog, activeSources)
+    if not activeSources or #activeSources == 0 then
+        return nil
+    end
+
+    local ok, result = LrTasks.pcall(function()
+        return catalog:setActiveSources(activeSources)
+    end)
+
+    if not ok or result == false then
+        return "The staged frame was imported, but Lightroom did not restore the previous active source."
+    end
+
+    return nil
 end
 
 local function selectOriginalsAndCalibration(catalog, originalPhotos, stagedPhoto)
@@ -249,6 +357,7 @@ local function run()
         end
 
         local settings = Settings.effective()
+        local activeSources = getActiveSources(catalog)
         if not Settings.pathExists(settings.helperScriptPath) then
             fail("The helper script was not found:\n\n" .. settings.helperScriptPath .. "\n\nUse Configure Flat-Field Stager to choose scripts/stage_calibration.py.")
         end
@@ -275,19 +384,33 @@ local function run()
             fail("The staging helper did not report a staged calibration path.")
         end
 
-        local stagedPhoto, importErr = importStagedPhoto(catalog, stagedPath)
+        local stagedPhoto, importErr, addedSourceCount, sourceWarnings = importStagedPhoto(catalog, stagedPath, activeSources)
         if not stagedPhoto then
             fail("The calibration copy was staged, but Lightroom could not import it:\n\n" .. tostring(importErr))
         end
 
+        local restoreWarning = restoreActiveSources(catalog, activeSources)
         selectOriginalsAndCalibration(catalog, photos, stagedPhoto)
 
         local warning = trim(result.warning)
-        local message = "Staged and imported:\n" .. stagedPath .. "\n\nThe original scans and the staged calibration frame are selected. Now run Library > Flat-Field Correction."
+        local warningLines = {}
+        if warning ~= "" then
+            table.insert(warningLines, warning)
+        end
+        appendWarnings(warningLines, sourceWarnings)
+        if restoreWarning then
+            table.insert(warningLines, restoreWarning)
+        end
+
+        local message = "Staged and imported:\n" .. stagedPath
+        if addedSourceCount and addedSourceCount > 0 then
+            message = message .. "\n\nAdded the staged frame to " .. tostring(addedSourceCount) .. " active Lightroom collection source(s)."
+        end
+        message = message .. "\n\nThe original scans and the staged calibration frame are selected. Now run Library > Flat-Field Correction."
         local style = "info"
 
-        if warning ~= "" then
-            message = message .. "\n\nWarning: " .. warning
+        if #warningLines > 0 then
+            message = message .. "\n\nWarning: " .. table.concat(warningLines, "\n")
             style = "warning"
         end
 
