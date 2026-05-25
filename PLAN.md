@@ -62,3 +62,11 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 3. Verify the output DNG is readable by rawpy/LibRaw and has the expected CFA geometry, black level, white level, and crop.
 4. Verify Adobe DNG Converter recompression succeeds when present.
 5. Keep sample raw/DNG files out of git because the folder is several gigabytes.
+
+## Implementation Status
+
+- Lightroom plugin: implemented in `lightroom-flatfield.lrplugin`.
+- Lightroom staging helper: implemented in `scripts/stage_calibration.py`.
+- Standalone CLI: implemented as `ffc-apply` in `src/ffc`.
+- CLI DNG path: writes uncompressed CFA DNGs directly, then uses Adobe DNG Converter for lossless compressed mosaic DNGs when available.
+- Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.
