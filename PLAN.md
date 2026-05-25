@@ -68,5 +68,6 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 - Lightroom plugin: implemented in `lightroom-flatfield.lrplugin`.
 - Lightroom staging helper: implemented in `scripts/stage_calibration.py`.
 - Standalone CLI: implemented as `ffc-apply` in `src/ffc`.
-- CLI DNG path: writes uncompressed CFA DNGs directly, then uses Adobe DNG Converter for lossless compressed mosaic DNGs when available.
-- Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.
+- CLI DNG path: writes uncompressed CFA DNGs directly, then uses open-source `dnglab` or Adobe DNG Converter for lossless compressed mosaic DNGs when available.
+- Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, precomputed per-CFA gain maps, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.
+- Metadata path: preserves core DNG raw geometry, camera identity, color matrices, white balance, black/white level, default crop, original file name, and capture timestamp/mtime. It does not yet fully clone proprietary MakerNotes, lens serial data, previews, Lightroom XMP, or all EXIF sub-IFDs.

@@ -15,8 +15,7 @@ class FlatFieldPlane:
     x: int
     black: float
     norm: float
-    eps: float
-    flat: np.ndarray
+    gain: np.ndarray
 
 
 @dataclass
@@ -53,7 +52,8 @@ def build_profile(
 
         norm = float(np.median(plane[::8, ::8]))
         eps = max(1.0, norm * 0.001)
-        planes.append(FlatFieldPlane(phase_y, phase_x, black, norm, eps, plane))
+        gain = (norm / np.maximum(plane, eps)).astype(np.float32, copy=False)
+        planes.append(FlatFieldPlane(phase_y, phase_x, black, norm, gain))
 
     return FlatFieldProfile(metadata=metadata, planes=planes)
 
@@ -69,11 +69,9 @@ def apply_profile(scan: RawFrame, profile: FlatFieldProfile, *, backend: Backend
         scan_plane = scan.raw[plane.y::pattern_h, plane.x::pattern_w]
         corrected[plane.y::pattern_h, plane.x::pattern_w] = correct_plane(
             scan_plane,
-            plane.flat,
+            plane.gain,
             black=plane.black,
-            norm=plane.norm,
             white=float(metadata.white_level),
-            eps=plane.eps,
             backend=backend,
         )
 
@@ -97,4 +95,3 @@ def _validate_compatible(scan: RawFrame, profile: FlatFieldProfile) -> None:
             f"{scan_meta.path} CFA pattern does not match correction frame "
             f"({scan_meta.dng_cfa_pattern} vs {corr_meta.dng_cfa_pattern})."
         )
-

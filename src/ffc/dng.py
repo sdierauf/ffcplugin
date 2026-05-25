@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+import io
+import os
 import shutil
 import subprocess
 import tempfile
@@ -32,6 +35,9 @@ def write_mosaic_dng(path: Path, raw: np.ndarray, metadata: RawMetadata, *, soft
         datetime=_datetime_tag(metadata.timestamp),
         extratags=tags,
     )
+    if metadata.timestamp is not None:
+        epoch = metadata.timestamp.timestamp()
+        os.utime(path, (epoch, epoch))
 
 
 def compress_with_adobe_dng_converter(
@@ -54,6 +60,34 @@ def compress_with_adobe_dng_converter(
     missing = [output_dir / path.name for path in input_paths if not (output_dir / path.name).exists()]
     if missing:
         raise RuntimeError(f"Adobe DNG Converter did not create expected output: {missing[0]}")
+    for input_path in input_paths:
+        _preserve_datetime_and_mtime(input_path, output_dir / input_path.name)
+
+
+def compress_with_dnglab(input_paths: list[Path], output_dir: Path, *, dnglab_path: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for input_path in input_paths:
+        output_path = output_dir / input_path.name
+        cmd = [
+            str(dnglab_path),
+            "convert",
+            "-f",
+            "--embed-raw",
+            "false",
+            "--dng-preview",
+            "false",
+            "--dng-thumbnail",
+            "false",
+            str(input_path),
+            str(output_path),
+        ]
+        result = subprocess.run(cmd, text=True, capture_output=True, check=False)
+        if result.returncode != 0:
+            details = "\n".join(part for part in [result.stdout.strip(), result.stderr.strip()] if part)
+            raise RuntimeError(f"dnglab failed with exit code {result.returncode}.\n{details}")
+        if not output_path.exists():
+            raise RuntimeError(f"dnglab did not create expected output: {output_path}")
+        _preserve_datetime_and_mtime(input_path, output_path)
 
 
 def find_adobe_dng_converter(explicit: str | None = None) -> Path | None:
@@ -75,6 +109,25 @@ def find_adobe_dng_converter(explicit: str | None = None) -> Path | None:
         executable = _converter_executable(candidate)
         if executable and executable.exists():
             return executable
+    return None
+
+
+def find_dnglab(explicit: str | None = None) -> Path | None:
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+    which = shutil.which("dnglab")
+    if which:
+        candidates.append(Path(which))
+    candidates.extend(
+        [
+            Path("/opt/homebrew/bin/dnglab"),
+            Path("/usr/local/bin/dnglab"),
+        ]
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
     return None
 
 
@@ -143,7 +196,7 @@ def _dng_tags(metadata: RawMetadata) -> list[tuple[int, str, int, object, bool]]
         (50710, "B", 3, (0, 1, 2), False),
         (50711, "H", 1, 1, False),
         (50713, "H", 2, metadata.dng_cfa_repeat_dim, False),
-        (50714, "d", len(metadata.black_level_by_phase), metadata.black_level_by_phase, False),
+        _black_level_tag(metadata.black_level_by_phase),
         (50717, "H", 1, int(metadata.white_level), False),
         (50718, "2I", 2, (_urational(1), _urational(1)), False),
         (50719, "2I", 2, (_urational(crop_left), _urational(crop_top)), False),
@@ -158,6 +211,12 @@ def _dng_tags(metadata: RawMetadata) -> list[tuple[int, str, int, object, bool]]
     if metadata.as_shot_neutral is not None:
         tags.append((50728, "2I", 3, tuple(_urational_float(v) for v in metadata.as_shot_neutral), False))
     return tags
+
+
+def _black_level_tag(values: tuple[float, ...]) -> tuple[int, str, int, object, bool]:
+    if all(float(value).is_integer() and 0 <= value <= 65535 for value in values):
+        return (50714, "H", len(values), tuple(int(value) for value in values), False)
+    return (50714, "2I", len(values), tuple(_urational_float(value) for value in values), False)
 
 
 def _urational(value: int | float) -> tuple[int, int]:
@@ -183,3 +242,35 @@ def _converter_executable(path: Path) -> Path | None:
         return path / "Contents" / "MacOS" / "Adobe DNG Converter"
     return path
 
+
+def _preserve_datetime_and_mtime(source: Path, output: Path) -> None:
+    timestamp = _read_tiff_datetime(source)
+    if timestamp:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                with tifffile.TiffFile(output, mode="r+b") as tif:
+                    tag = tif.pages[0].tags.get("DateTime")
+                    if tag is not None:
+                        tag.overwrite(timestamp)
+        except Exception:
+            pass
+
+    try:
+        source_stat = source.stat()
+        os.utime(output, (source_stat.st_atime, source_stat.st_mtime))
+    except OSError:
+        pass
+
+
+def _read_tiff_datetime(path: Path) -> str | None:
+    try:
+        with tifffile.TiffFile(path) as tif:
+            for page in tif.pages:
+                tag = page.tags.get("DateTime")
+                if tag is not None:
+                    value = str(tag.value)
+                    if len(value) == 19:
+                        return value
+    except Exception:
+        return None
+    return None

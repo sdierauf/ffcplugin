@@ -12,7 +12,7 @@ uv sync --extra apple --extra dev
 uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --output corrected --overwrite
 ```
 
-By default the CLI processes `.ARW` files in the input folder, writes mosaic raw DNGs, and uses Adobe DNG Converter for lossless compression when it is installed at the standard macOS path.
+By default the CLI processes `.ARW` files in the input folder, writes mosaic raw DNGs, and uses a compact lossless DNG compressor when available. It prefers the open-source `dnglab` tool for lossless JPEG DNGs, then falls back to Adobe DNG Converter, then to uncompressed DNGs.
 
 Useful options:
 
@@ -20,6 +20,8 @@ Useful options:
 uv run ffc-apply correctionimage.ARW scans/ --output corrected/
 uv run ffc-apply correctionimage.ARW scans/ --include "*.NEF" --include "*.CR3" --recursive
 uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless-jxl
+uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
+uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
 ```
 
@@ -31,6 +33,14 @@ Backends:
 - `mlx`: optional Apple Silicon/Metal path for the elementwise correction step.
 
 The raw decode path uses LibRaw through `rawpy`. The default smoothing step uses SciPy's native Gaussian filter once per correction frame, then reuses that gain profile for all scans in the batch.
+
+Optional compact-DNG tools:
+
+```sh
+brew install dnglab
+```
+
+Adobe DNG Converter is still supported, and is required for `--compression lossless-jxl`.
 
 ## Lightroom Plugin Loading
 
@@ -48,5 +58,6 @@ ExifTool is optional but recommended for the Lightroom helper because Lightroom 
 ## Notes
 
 - The standalone CLI writes true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
-- If Adobe DNG Converter is unavailable, output DNGs are valid but uncompressed and therefore large.
+- If neither `dnglab` nor Adobe DNG Converter is available, output DNGs are valid but uncompressed and therefore large.
+- The CLI preserves the raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, or Lightroom XMP field from the source raw.
 - Keep calibration frames matched to the same light source, camera, lens, aperture, focus distance, and scan geometry whenever possible.
