@@ -27,3 +27,4 @@ build/
 *.lrdata/
 *.agprefs
 *.log
+lightroom-flatfield.lrplugin/ffcplugin.config

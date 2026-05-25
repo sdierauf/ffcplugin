@@ -9,24 +9,32 @@ This repo contains two related workflows:
   - stage an existing calibration raw so Lightroom Classic's built-in `Library > Flat-Field Correction` can use it;
   - run this repo's Python raw/DNG pipeline directly from Lightroom, including a crop-aware mode for masked backlight frames.
 
-## Prerequisites
+## Setup
 
-Install the normal macOS command-line dependencies with Homebrew:
+Run the bootstrap script from the repo root:
+
+```sh
+python3 scripts/init_lightroom_config.py
+```
+
+The script:
+
+- installs missing Homebrew tools used by the project: `uv`, `dnglab`, and `exiftool`;
+- runs `uv sync --extra apple --extra dev` to create/update `.venv`;
+- writes `lightroom-flatfield.lrplugin/ffcplugin.config` with absolute paths, including this repo's `.venv/bin/python`.
+
+If you prefer to install Homebrew dependencies yourself:
 
 ```sh
 brew install uv dnglab exiftool
+uv sync --extra apple --extra dev
+python3 scripts/init_lightroom_config.py --no-install --skip-uv-sync
 ```
 
 Optional: install Adobe DNG Converter if you want Adobe's DNG compressor or `--compression lossless-jxl`:
 
 ```sh
 brew install --cask adobe-dng-converter
-```
-
-Then create the Python environment:
-
-```sh
-uv sync --extra apple --extra dev
 ```
 
 The `apple` extra installs MLX for the optional Apple Silicon backend. The default backend uses NumExpr when available.
@@ -76,10 +84,12 @@ Load the plugin:
 2. Click `Add`.
 3. Select the `lightroom-flatfield.lrplugin` folder from this repo.
 4. Click `Configure...` in the plugin panel.
-5. Set `Python command/path` to this repo's environment, for example:
+5. Load or confirm the generated config file: `lightroom-flatfield.lrplugin/ffcplugin.config`.
+
+Regenerate that config after moving the repo, recreating `.venv`, or changing tool locations:
 
 ```sh
-/Users/sdierauf/git/ffcplugin/.venv/bin/python
+python3 scripts/init_lightroom_config.py
 ```
 
 The plugin has three Library menu commands under `Library > Plug-in Extras`:

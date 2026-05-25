@@ -29,6 +29,10 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
                     fill_horizontal = 1,
                 },
                 f:static_text {
+                    title = "Config: " .. settings.configPath .. (settings.configError and " (" .. settings.configError .. ")" or ""),
+                    fill_horizontal = 1,
+                },
+                f:static_text {
                     title = "Python: " .. Settings.displayValue(settings.pythonCommand, Settings.defaultPythonCommand()),
                     fill_horizontal = 1,
                 },
@@ -45,7 +49,11 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
                     fill_horizontal = 1,
                 },
                 f:static_text {
-                    title = "ExifTool: " .. Settings.displayValue(settings.exiftoolPath, "auto-detect on PATH"),
+                    title = "ExifTool: " .. Settings.displayValue(settings.exiftoolPath, "not configured"),
+                    fill_horizontal = 1,
+                },
+                f:static_text {
+                    title = "dnglab: " .. Settings.displayValue(settings.dnglabPath, "auto-detect on PATH"),
                     fill_horizontal = 1,
                 },
                 f:push_button {

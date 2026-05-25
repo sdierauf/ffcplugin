@@ -11,6 +11,8 @@ local prefs = LrPrefs.prefsForPlugin()
 
 local Settings = {}
 
+local CONFIG_FILENAME = "ffcplugin.config"
+
 local function trim(value)
     if value == nil then
         return ""
@@ -26,6 +28,15 @@ local function isWindows()
 
     local pluginPath = (_PLUGIN and _PLUGIN.path) or ""
     return pluginPath:match("^%a:[/\\]") ~= nil or pluginPath:find("\\", 1, true) ~= nil
+end
+
+local function pathExists(path)
+    if trim(path) == "" then
+        return false
+    end
+
+    local exists = LrFileUtils.exists(path)
+    return exists == true or exists == "file"
 end
 
 local function chooseFile(title, fileTypes)
@@ -45,7 +56,91 @@ local function chooseFile(title, fileTypes)
     return nil
 end
 
+local function repoRoot()
+    if _PLUGIN and _PLUGIN.path then
+        return LrPathUtils.parent(_PLUGIN.path)
+    end
+
+    return "."
+end
+
+local function repoPath(first, second)
+    local path = LrPathUtils.child(repoRoot(), first)
+    if second then
+        path = LrPathUtils.child(path, second)
+    end
+    return path
+end
+
+local function unquote(value)
+    value = trim(value)
+    local first = value:sub(1, 1)
+    local last = value:sub(-1)
+    if #value >= 2 and ((first == '"' and last == '"') or (first == "'" and last == "'")) then
+        value = value:sub(2, -2)
+    end
+    return value:gsub('\\"', '"'):gsub("\\\\", "\\")
+end
+
+local function valueFor(settings, config, key, defaultValue)
+    local configValue = trim(config[key])
+    if configValue ~= "" then
+        return configValue
+    end
+
+    local prefValue = trim(settings[key])
+    if prefValue ~= "" then
+        return prefValue
+    end
+
+    return defaultValue or ""
+end
+
+local function setDisplay(properties, values)
+    properties.pythonCommand = values.pythonCommand
+    properties.helperScriptPath = values.helperScriptPath
+    properties.applyScriptPath = values.applyScriptPath
+    properties.exiftoolPath = Settings.displayValue(values.exiftoolPath, "(not configured)")
+    properties.outputSubfolder = values.outputSubfolder
+    properties.backend = values.backend
+    properties.compressor = values.compressor
+    properties.compression = values.compression
+    properties.smoothSigma = values.smoothSigma
+    properties.normPercentile = values.normPercentile
+    properties.dnglabPath = Settings.displayValue(values.dnglabPath, "(auto)")
+    properties.dngConverterPath = Settings.displayValue(values.dngConverterPath, "(auto)")
+    properties.pipelineSummary = "backend=" .. values.backend
+        .. ", compressor=" .. values.compressor
+        .. ", compression=" .. values.compression
+        .. ", smoothSigma=" .. values.smoothSigma
+        .. ", normPercentile=" .. values.normPercentile
+    if values.configError and values.configError ~= "" then
+        properties.configStatus = values.configError
+    else
+        properties.configStatus = "Loaded config: " .. values.configPath
+    end
+end
+
+function Settings.defaultConfigPath()
+    if _PLUGIN and _PLUGIN.path then
+        return LrPathUtils.child(_PLUGIN.path, CONFIG_FILENAME)
+    end
+
+    return CONFIG_FILENAME
+end
+
 function Settings.defaultPythonCommand()
+    local venvPython
+    if isWindows() then
+        venvPython = LrPathUtils.child(repoPath(".venv", "Scripts"), "python.exe")
+    else
+        venvPython = LrPathUtils.child(repoPath(".venv", "bin"), "python")
+    end
+
+    if pathExists(venvPython) then
+        return venvPython
+    end
+
     if isWindows() then
         return "python"
     end
@@ -54,25 +149,43 @@ function Settings.defaultPythonCommand()
 end
 
 function Settings.defaultHelperScriptPath()
-    if _PLUGIN and _PLUGIN.path then
-        local repoRoot = LrPathUtils.parent(_PLUGIN.path)
-        return LrPathUtils.child(LrPathUtils.child(repoRoot, "scripts"), "stage_calibration.py")
-    end
-
-    return LrPathUtils.child("scripts", "stage_calibration.py")
+    return repoPath("scripts", "stage_calibration.py")
 end
 
 function Settings.defaultApplyScriptPath()
-    if _PLUGIN and _PLUGIN.path then
-        local repoRoot = LrPathUtils.parent(_PLUGIN.path)
-        return LrPathUtils.child(LrPathUtils.child(repoRoot, "scripts"), "run_ffc_apply.py")
+    return repoPath("scripts", "run_ffc_apply.py")
+end
+
+function Settings.readConfig(path)
+    path = trim(path)
+    local values = {}
+
+    if path == "" then
+        return values, "No config file path is set."
     end
 
-    return LrPathUtils.child("scripts", "run_ffc_apply.py")
+    local file = io.open(path, "rb")
+    if not file then
+        return values, "Config file not found: " .. path
+    end
+
+    for line in file:lines() do
+        local cleaned = trim(line:gsub("\r", ""))
+        if cleaned ~= "" and cleaned:sub(1, 1) ~= "#" then
+            local key, value = cleaned:match("^([A-Za-z0-9_]+)%s*=%s*(.-)%s*$")
+            if key then
+                values[key] = unquote(value)
+            end
+        end
+    end
+
+    file:close()
+    return values, nil
 end
 
 function Settings.get()
     return {
+        configPath = trim(prefs.configPath),
         pythonCommand = trim(prefs.pythonCommand),
         helperScriptPath = trim(prefs.helperScriptPath),
         applyScriptPath = trim(prefs.applyScriptPath),
@@ -90,24 +203,29 @@ end
 
 function Settings.effective(settings)
     settings = settings or Settings.get()
+    local configPath = trim(settings.configPath) ~= "" and trim(settings.configPath) or Settings.defaultConfigPath()
+    local config, configError = Settings.readConfig(configPath)
 
     return {
-        pythonCommand = trim(settings.pythonCommand) ~= "" and trim(settings.pythonCommand) or Settings.defaultPythonCommand(),
-        helperScriptPath = trim(settings.helperScriptPath) ~= "" and trim(settings.helperScriptPath) or Settings.defaultHelperScriptPath(),
-        applyScriptPath = trim(settings.applyScriptPath) ~= "" and trim(settings.applyScriptPath) or Settings.defaultApplyScriptPath(),
-        exiftoolPath = trim(settings.exiftoolPath),
-        outputSubfolder = trim(settings.outputSubfolder) ~= "" and trim(settings.outputSubfolder) or "flatfield-corrected",
-        backend = trim(settings.backend) ~= "" and trim(settings.backend) or "auto",
-        compressor = trim(settings.compressor) ~= "" and trim(settings.compressor) or "auto",
-        compression = trim(settings.compression) ~= "" and trim(settings.compression) or "auto",
-        smoothSigma = trim(settings.smoothSigma) ~= "" and trim(settings.smoothSigma) or "192",
-        normPercentile = trim(settings.normPercentile) ~= "" and trim(settings.normPercentile) or "70",
-        dnglabPath = trim(settings.dnglabPath),
-        dngConverterPath = trim(settings.dngConverterPath),
+        configPath = configPath,
+        configError = configError,
+        pythonCommand = valueFor(settings, config, "pythonCommand", Settings.defaultPythonCommand()),
+        helperScriptPath = valueFor(settings, config, "helperScriptPath", Settings.defaultHelperScriptPath()),
+        applyScriptPath = valueFor(settings, config, "applyScriptPath", Settings.defaultApplyScriptPath()),
+        exiftoolPath = valueFor(settings, config, "exiftoolPath", ""),
+        outputSubfolder = valueFor(settings, config, "outputSubfolder", "flatfield-corrected"),
+        backend = valueFor(settings, config, "backend", "auto"),
+        compressor = valueFor(settings, config, "compressor", "auto"),
+        compression = valueFor(settings, config, "compression", "auto"),
+        smoothSigma = valueFor(settings, config, "smoothSigma", "192"),
+        normPercentile = valueFor(settings, config, "normPercentile", "70"),
+        dnglabPath = valueFor(settings, config, "dnglabPath", ""),
+        dngConverterPath = valueFor(settings, config, "dngConverterPath", ""),
     }
 end
 
 function Settings.save(settings)
+    prefs.configPath = trim(settings.configPath)
     prefs.pythonCommand = trim(settings.pythonCommand)
     prefs.helperScriptPath = trim(settings.helperScriptPath)
     prefs.applyScriptPath = trim(settings.applyScriptPath)
@@ -132,282 +250,120 @@ function Settings.displayValue(value, defaultValue)
 end
 
 function Settings.pathExists(path)
-    if trim(path) == "" then
-        return false
-    end
-
-    local exists = LrFileUtils.exists(path)
-    return exists == true or exists == "file"
+    return pathExists(path)
 end
 
 function Settings.showDialog()
     LrFunctionContext.callWithContext("FlatFieldStagerSettings", function(context)
         local current = Settings.get()
+        local effective = Settings.effective(current)
         local f = LrView.osFactory()
         local properties = LrBinding.makePropertyTable(context)
 
-        properties.pythonCommand = current.pythonCommand
-        properties.helperScriptPath = current.helperScriptPath
-        properties.applyScriptPath = current.applyScriptPath
-        properties.exiftoolPath = current.exiftoolPath
-        properties.outputSubfolder = current.outputSubfolder
-        properties.backend = current.backend
-        properties.compressor = current.compressor
-        properties.compression = current.compression
-        properties.smoothSigma = current.smoothSigma
-        properties.normPercentile = current.normPercentile
-        properties.dnglabPath = current.dnglabPath
-        properties.dngConverterPath = current.dngConverterPath
+        properties.configPath = effective.configPath
+        setDisplay(properties, effective)
+
+        local function reloadConfig()
+            local reloaded = Settings.effective { configPath = properties.configPath }
+            setDisplay(properties, reloaded)
+        end
 
         local contents = f:column {
             bind_to_object = properties,
             spacing = f:control_spacing(),
 
+            f:static_text {
+                title = "Run scripts/init_lightroom_config.py to install dependencies, create/update the repo venv, and generate this config file.",
+                fill_horizontal = 1,
+            },
+
             f:row {
                 spacing = f:control_spacing(),
                 f:static_text {
-                    title = "Python command/path",
-                    width = 150,
+                    title = "Config file",
+                    width = 120,
                     alignment = "right",
                 },
                 f:edit_field {
-                    value = bind "pythonCommand",
-                    width_in_chars = 48,
+                    value = bind "configPath",
+                    width_in_chars = 58,
                 },
                 f:push_button {
                     title = "Choose...",
                     action = function()
-                        local path = chooseFile("Choose Python executable")
+                        local path = chooseFile("Choose ffcplugin.config", { "config", "txt" })
                         if path then
-                            properties.pythonCommand = path
+                            properties.configPath = path
+                            reloadConfig()
                         end
                     end,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Staging helper",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "helperScriptPath",
-                    width_in_chars = 48,
                 },
                 f:push_button {
-                    title = "Choose...",
-                    action = function()
-                        local path = chooseFile("Choose stage_calibration.py", { "py" })
-                        if path then
-                            properties.helperScriptPath = path
-                        end
-                    end,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Python apply helper",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "applyScriptPath",
-                    width_in_chars = 48,
-                },
-                f:push_button {
-                    title = "Choose...",
-                    action = function()
-                        local path = chooseFile("Choose run_ffc_apply.py", { "py" })
-                        if path then
-                            properties.applyScriptPath = path
-                        end
-                    end,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "ExifTool path",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "exiftoolPath",
-                    width_in_chars = 48,
-                },
-                f:push_button {
-                    title = "Choose...",
-                    action = function()
-                        local path = chooseFile("Choose exiftool executable")
-                        if path then
-                            properties.exiftoolPath = path
-                        end
-                    end,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Output subfolder",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "outputSubfolder",
-                    width_in_chars = 48,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Backend",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "backend",
-                    width_in_chars = 16,
-                },
-                f:static_text {
-                    title = "auto, numpy, numexpr, or mlx",
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Compressor",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "compressor",
-                    width_in_chars = 16,
-                },
-                f:static_text {
-                    title = "auto, dnglab, adobe, or none",
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Compression",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "compression",
-                    width_in_chars = 16,
-                },
-                f:static_text {
-                    title = "auto, lossless-jpeg, lossless-jxl, or none",
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Smooth sigma",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "smoothSigma",
-                    width_in_chars = 16,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "Norm percentile",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "normPercentile",
-                    width_in_chars = 16,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "dnglab path",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "dnglabPath",
-                    width_in_chars = 48,
-                },
-                f:push_button {
-                    title = "Choose...",
-                    action = function()
-                        local path = chooseFile("Choose dnglab executable")
-                        if path then
-                            properties.dnglabPath = path
-                        end
-                    end,
-                },
-            },
-
-            f:row {
-                spacing = f:control_spacing(),
-                f:static_text {
-                    title = "DNG Converter path",
-                    width = 150,
-                    alignment = "right",
-                },
-                f:edit_field {
-                    value = bind "dngConverterPath",
-                    width_in_chars = 48,
-                },
-                f:push_button {
-                    title = "Choose...",
-                    action = function()
-                        local path = chooseFile("Choose Adobe DNG Converter")
-                        if path then
-                            properties.dngConverterPath = path
-                        end
-                    end,
+                    title = "Load",
+                    action = reloadConfig,
                 },
             },
 
             f:static_text {
-                title = "For the Python pipeline, set Python to this repo's .venv/bin/python or another environment with the package dependencies installed.",
+                title = bind "configStatus",
                 fill_horizontal = 1,
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "Python", width = 120, alignment = "right" },
+                f:static_text { title = bind "pythonCommand", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "Staging helper", width = 120, alignment = "right" },
+                f:static_text { title = bind "helperScriptPath", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "Apply helper", width = 120, alignment = "right" },
+                f:static_text { title = bind "applyScriptPath", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "ExifTool", width = 120, alignment = "right" },
+                f:static_text { title = bind "exiftoolPath", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "dnglab", width = 120, alignment = "right" },
+                f:static_text { title = bind "dnglabPath", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "DNG Converter", width = 120, alignment = "right" },
+                f:static_text { title = bind "dngConverterPath", fill_horizontal = 1 },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text { title = "Pipeline", width = 120, alignment = "right" },
+                f:static_text {
+                    title = bind "pipelineSummary",
+                    fill_horizontal = 1,
+                },
             },
         }
 
         local result = LrDialogs.presentModalDialog {
             title = "Flat-Field Stager Settings",
             contents = contents,
-            actionVerb = "Save",
+            actionVerb = "Save Config Path",
         }
 
         if result == "ok" then
             Settings.save {
-                pythonCommand = properties.pythonCommand,
-                helperScriptPath = properties.helperScriptPath,
-                applyScriptPath = properties.applyScriptPath,
-                exiftoolPath = properties.exiftoolPath,
-                outputSubfolder = properties.outputSubfolder,
-                backend = properties.backend,
-                compressor = properties.compressor,
-                compression = properties.compression,
-                smoothSigma = properties.smoothSigma,
-                normPercentile = properties.normPercentile,
-                dnglabPath = properties.dnglabPath,
-                dngConverterPath = properties.dngConverterPath,
+                configPath = properties.configPath,
             }
         end
     end)
