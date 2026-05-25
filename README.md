@@ -1,0 +1,52 @@
+# ffcplugin
+
+Reusable flat-field correction tools for camera-scanned film:
+
+- `ffc-apply`: a standalone raw-to-DNG flat-field correction CLI.
+- `lightroom-flatfield.lrplugin`: a Lightroom Classic helper plugin that stages an existing calibration raw as the last selected frame so Lightroom's built-in Flat-Field Correction can use it.
+
+## CLI Quick Start
+
+```sh
+uv sync --extra apple --extra dev
+uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --output corrected --overwrite
+```
+
+By default the CLI processes `.ARW` files in the input folder, writes mosaic raw DNGs, and uses Adobe DNG Converter for lossless compression when it is installed at the standard macOS path.
+
+Useful options:
+
+```sh
+uv run ffc-apply correctionimage.ARW scans/ --output corrected/
+uv run ffc-apply correctionimage.ARW scans/ --include "*.NEF" --include "*.CR3" --recursive
+uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless-jxl
+uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
+```
+
+Backends:
+
+- `auto`: uses NumExpr when available, otherwise NumPy.
+- `numpy`: vectorized NumPy CPU path.
+- `numexpr`: multi-threaded native expression evaluation.
+- `mlx`: optional Apple Silicon/Metal path for the elementwise correction step.
+
+The raw decode path uses LibRaw through `rawpy`. The default smoothing step uses SciPy's native Gaussian filter once per correction frame, then reuses that gain profile for all scans in the batch.
+
+## Lightroom Plugin Loading
+
+1. In Lightroom Classic, open `File > Plug-in Manager`.
+2. Click `Add`.
+3. Select the `lightroom-flatfield.lrplugin` folder from this repo.
+4. Configure Python and ExifTool paths in the plugin manager if the defaults are not correct.
+5. In Library, select the scans for one batch.
+6. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...`.
+7. Pick your reusable calibration raw.
+8. After the plugin imports and selects the staged frame, run `Library > Flat-Field Correction`.
+
+ExifTool is optional but recommended for the Lightroom helper because Lightroom sorts and detects calibration frames more reliably when the duplicate calibration raw has a capture timestamp after the selected batch. Without ExifTool, the helper falls back to changing only filesystem timestamps.
+
+## Notes
+
+- The standalone CLI writes true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
+- If Adobe DNG Converter is unavailable, output DNGs are valid but uncompressed and therefore large.
+- Keep calibration frames matched to the same light source, camera, lens, aperture, focus distance, and scan geometry whenever possible.

@@ -1,0 +1,34 @@
+[project]
+name = "ffcplugin"
+version = "0.1.0"
+description = "Reusable flat-field correction helpers for film scan raws and Lightroom Classic."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "numpy>=2.0",
+  "rawpy>=0.25",
+  "scipy>=1.13",
+  "tifffile>=2025.5",
+  "numexpr>=2.10",
+]
+
+[project.optional-dependencies]
+apple = [
+  "mlx>=0.25; platform_system == 'Darwin' and platform_machine == 'arm64'",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+ffc-apply = "ffc.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ffc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
