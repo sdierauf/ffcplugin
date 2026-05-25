@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--recursive", action="store_true", help="Search folders recursively.")
     parser.add_argument("--repeat", type=int, default=3, help="Benchmark repeats.")
     parser.add_argument("--limit", type=int, default=0, help="Limit input files for quick runs.")
-    parser.add_argument("--smooth-sigma", type=float, default=96.0, help="Correction-frame smoothing sigma.")
+    parser.add_argument("--smooth-sigma", type=float, default=192.0, help="Correction-frame smoothing sigma.")
     parser.add_argument("--numexpr-threads", type=int, default=None, help="NumExpr thread count.")
     parser.add_argument("--backends", nargs="+", default=["numpy", "numexpr", "mlx"], choices=["numpy", "numexpr", "mlx"])
     return parser.parse_args()
@@ -81,4 +81,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -100,7 +100,7 @@ function Settings.effective(settings)
         backend = trim(settings.backend) ~= "" and trim(settings.backend) or "auto",
         compressor = trim(settings.compressor) ~= "" and trim(settings.compressor) or "auto",
         compression = trim(settings.compression) ~= "" and trim(settings.compression) or "auto",
-        smoothSigma = trim(settings.smoothSigma) ~= "" and trim(settings.smoothSigma) or "96",
+        smoothSigma = trim(settings.smoothSigma) ~= "" and trim(settings.smoothSigma) or "192",
         normPercentile = trim(settings.normPercentile) ~= "" and trim(settings.normPercentile) or "70",
         dnglabPath = trim(settings.dnglabPath),
         dngConverterPath = trim(settings.dngConverterPath),

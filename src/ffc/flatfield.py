@@ -27,7 +27,7 @@ class FlatFieldProfile:
 def build_profile(
     correction: RawFrame,
     *,
-    smooth_sigma: float = 96.0,
+    smooth_sigma: float = 192.0,
     clip_percentiles: tuple[float, float] = (0.1, 99.9),
     norm_percentile: float = 70.0,
     active_area: tuple[int, int, int, int] | None = None,

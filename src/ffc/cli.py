@@ -142,7 +142,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--smooth-sigma",
         type=float,
-        default=96.0,
+        default=192.0,
         help="Gaussian smoothing sigma in full-resolution pixels for the correction frame; 0 disables smoothing.",
     )
     parser.add_argument("--clip-low", type=float, default=0.1, help="Low percentile clip for correction-frame outliers.")
