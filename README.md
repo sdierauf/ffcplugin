@@ -1,42 +1,62 @@
 # ffcplugin
 
-Reusable flat-field correction tools for camera-scanned film:
+Raw flat-field correction tools for camera-scanned film.
 
-- `ffc-apply`: a standalone raw-to-DNG flat-field correction CLI.
-- `lightroom-flatfield.lrplugin`: a Lightroom Classic helper plugin that stages an existing calibration raw as the last selected frame so Lightroom's built-in Flat-Field Correction can use it.
+This repo contains two related workflows:
 
-## CLI Quick Start
+- `ffc-apply`: a standalone CLI that applies a reusable flat-field raw to a folder of scan raws and writes true mosaic DNGs.
+- `lightroom-flatfield.lrplugin`: a Lightroom Classic plugin with two commands:
+  - stage an existing calibration raw so Lightroom Classic's built-in `Library > Flat-Field Correction` can use it;
+  - run this repo's Python raw/DNG pipeline directly from Lightroom, including a crop-aware mode for masked backlight frames.
 
-Install the Homebrew packages used by the normal macOS workflow:
+## Prerequisites
+
+Install the normal macOS command-line dependencies with Homebrew:
 
 ```sh
 brew install uv dnglab exiftool
 ```
 
-Optional: install Adobe DNG Converter if you want Adobe's compressor or `--compression lossless-jxl`:
+Optional: install Adobe DNG Converter if you want Adobe's DNG compressor or `--compression lossless-jxl`:
 
 ```sh
 brew install --cask adobe-dng-converter
 ```
 
-Then install the project environment and run the CLI:
+Then create the Python environment:
 
 ```sh
 uv sync --extra apple --extra dev
+```
+
+The `apple` extra installs MLX for the optional Apple Silicon backend. The default backend uses NumExpr when available.
+
+## Standalone CLI
+
+Run flat-field correction on a scan folder:
+
+```sh
 uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --overwrite
 ```
 
-By default the CLI processes `.ARW` files in the input folder, writes corrected mosaic raw DNGs back into that same root folder using an `_ffc.dng` suffix, then moves the original raws into an `originals/` subfolder after the DNGs are successfully written. It prefers the open-source `dnglab` tool for lossless JPEG DNGs, then falls back to Adobe DNG Converter, then to uncompressed DNGs.
+Default behavior:
+
+- reads `.ARW` files in the input folder;
+- excludes the correction raw itself;
+- writes corrected DNGs into the scan folder root with an `_ffc.dng` suffix;
+- moves the source raws, and matching `.xmp` / `.XMP` sidecars, into `originals/` after successful DNG creation;
+- prefers `dnglab` for compact lossless JPEG DNGs, then Adobe DNG Converter, then uncompressed DNGs.
 
 Useful options:
 
 ```sh
+uv run ffc-apply correctionimage.ARW scans/ --keep-originals
 uv run ffc-apply correctionimage.ARW scans/ --output corrected/
+uv run ffc-apply correctionimage.ARW scans/ --originals-dir raw-originals
 uv run ffc-apply correctionimage.ARW scans/ --include "*.NEF" --include "*.CR3" --recursive
 uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless-jxl
 uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
-uv run ffc-apply correctionimage.ARW scans/ --keep-originals
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
 ```
 
@@ -47,51 +67,71 @@ Backends:
 - `numexpr`: multi-threaded native expression evaluation.
 - `mlx`: optional Apple Silicon/Metal path for the elementwise correction step.
 
-The raw decode path uses LibRaw through `rawpy`. The default smoothing step uses SciPy's native Gaussian filter once per correction frame, then reuses that gain profile for all scans in the batch.
+## Lightroom Plugin
 
-Optional compact-DNG tools:
-
-```sh
-brew install dnglab
-```
-
-Adobe DNG Converter is still supported, and is required for `--compression lossless-jxl`.
-
-## Lightroom Plugin Loading
+Load the plugin:
 
 1. In Lightroom Classic, open `File > Plug-in Manager`.
 2. Click `Add`.
 3. Select the `lightroom-flatfield.lrplugin` folder from this repo.
-4. Configure Python and ExifTool paths in the plugin manager if the defaults are not correct.
-5. In Library, select the scans for one batch.
-6. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...` to use Lightroom's Flat-Field Correction, or `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...` to run this repo's raw/DNG implementation directly.
-7. Pick your reusable calibration raw.
-8. For the staging flow, after the plugin imports and selects the staged frame, run `Library > Flat-Field Correction`.
-
-For the Python pipeline menu item, set the plugin's Python command to an environment with the project installed, for example:
+4. Click `Configure...` in the plugin panel.
+5. Set `Python command/path` to this repo's environment, for example:
 
 ```sh
 /Users/sdierauf/git/ffcplugin/.venv/bin/python
 ```
 
-The Python pipeline writes corrected DNGs to a `flatfield-corrected` subfolder next to the selected scans by default, imports them into the catalog, and selects the generated DNGs.
+The plugin has three Library menu commands under `Library > Plug-in Extras`:
 
-Crop-aware calibration workflow:
+- `Stage Flat-Field Calibration Frame...`
+- `Apply Flat-Field With Python Pipeline...`
+- `Configure Flat-Field Stager...`
 
-1. Import the negatives and a backlight/flat-field image, even if the holder mask is visible in that flat-field raw.
+### Stage For Lightroom FFC
+
+Use this when you want Lightroom Classic's built-in correction.
+
+1. Select the scans in Library.
+2. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...`.
+3. Pick an existing calibration raw from disk.
+4. The plugin copies that raw beside the selected batch, timestamps it after the latest selected photo when ExifTool is available, imports it, and selects the scans plus the staged calibration frame.
+5. Run Lightroom's `Library > Flat-Field Correction`.
+
+ExifTool is optional but recommended for this staging workflow because Lightroom's built-in FFC is sensitive to capture order.
+
+### Run The Python Pipeline
+
+Use this when you want this repo's raw/DNG implementation from inside Lightroom.
+
+1. Select the scans in Library.
+2. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+3. Choose a calibration source:
+   - `Use Active Photo` uses the active selected Lightroom photo as the calibration frame and removes it from the scan list.
+   - `Choose File` picks an uncataloged raw from disk.
+4. The plugin writes corrected DNGs to a `flatfield-corrected/` subfolder next to the selected scans, imports them into Lightroom, and selects the generated DNGs.
+
+This Lightroom command does not move already-imported source raws; moving them would make Lightroom catalog entries go missing. The standalone CLI is the workflow that archives source raws into `originals/`.
+
+### Crop-Aware Masked Calibration
+
+Use this when the flat-field image still contains the film holder or mask.
+
+1. Import the negatives and the masked backlight/flat-field image.
 2. Apply the same Lightroom crop to the negatives and the flat-field image so the mask is outside the visible crop.
 3. Select the negatives plus the flat-field image.
 4. Make the flat-field image the active selected photo.
 5. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
 6. Choose `Use Active Photo`.
 
-In that mode the helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, and `CropBottom` develop settings, builds the flat-field gain map only from the cropped calibration region, and writes corrected DNGs whose default crop matches the selected Lightroom crop. If you choose a calibration raw from disk instead, no Lightroom crop metadata is available for that calibration file.
+The helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, and `CropBottom` develop settings, builds the flat-field gain map only from the cropped calibration region, and writes corrected DNGs whose default crop matches the selected Lightroom crop.
 
-ExifTool is optional but recommended for the Lightroom helper because Lightroom sorts and detects calibration frames more reliably when the duplicate calibration raw has a capture timestamp after the selected batch. Without ExifTool, the helper falls back to changing only filesystem timestamps.
+Current limitation: use an axis-aligned crop. Lightroom crop rotation/straightening metadata is recorded by the plugin but not modeled by the raw pipeline yet.
 
-## Notes
+## Output Notes
 
-- The standalone CLI writes true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
+- The CLI and Python plugin workflow write true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
+- The raw decode path uses LibRaw through `rawpy`.
+- The flat-field profile is built per CFA phase from black-subtracted raw values; smoothing is done once per correction frame.
 - If neither `dnglab` nor Adobe DNG Converter is available, output DNGs are valid but uncompressed and therefore large.
-- The CLI preserves the raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, or Lightroom XMP field from the source raw.
+- The DNG writer preserves raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, Lightroom XMP, or all EXIF sub-IFDs from the source raw.
 - Keep calibration frames matched to the same light source, camera, lens, aperture, focus distance, and scan geometry whenever possible.
