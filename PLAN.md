@@ -16,6 +16,10 @@ That requirement is awkward for film scanning because a reusable backlight calib
 - Adobe Lightroom Classic SDK overview: `https://developer.adobe.com/lightroom-classic/`
   - Lightroom Classic plugins are Lua plugins.
   - Plugins can add menu items, display dialogs, work with metadata, and run external processes.
+- Adobe Camera Raw XMP namespace: `https://developer.adobe.com/xmp/docs/xmp-namespaces/crs/`
+  - Adobe stores crop geometry in `CropLeft`, `CropTop`, `CropBottom`, `CropRight`, and `CropAngle` fields.
+- Lightroom SDK crop-geometry discussion: `https://community.adobe.com/t5/lightroom-classic-discussions/sdk-computing-the-corners-of-a-crop-rectangle/m-p/12995794`
+  - Lightroom crop coordinates are normalized in a top-left coordinate system, and `CropAngle` rotates the crop rectangle around its center.
 - Lightroom SDK catalog import API reference mirror: `https://archive.stecman.co.nz/files/docs/lightroom-sdk/API-Reference/modules/LrCatalog.html`
   - `catalog:addPhoto(path, stackWithPhoto, position)` can add a staged calibration file to the active catalog from a plugin write-access gate.
 - Adobe DNG Converter command-line documentation: `https://community.adobe.com/havfw69955/attachments/havfw69955/camera-raw/23452/1/DNG%20Converter%20Command%20Line.pdf`
@@ -68,7 +72,7 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 - Lightroom plugin: implemented in `lightroom-flatfield.lrplugin`.
 - Lightroom staging helper: implemented in `scripts/stage_calibration.py`.
 - Lightroom Python-pipeline helper: implemented in `scripts/run_ffc_apply.py` and exposed as `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
-- Crop-aware Python pipeline: when the calibration frame is the active Lightroom selection, the plugin passes Lightroom crop metadata to the helper so masks outside the crop are excluded from the flat-field gain map.
+- Crop-aware Python pipeline: when the calibration frame is the active Lightroom selection, the plugin passes Lightroom crop metadata to the helper so masks outside the crop are excluded from the flat-field gain map. Rotated/straightened Lightroom crops are modeled as polygon masks, and adjusted crop settings are reapplied to imported DNGs from the Lightroom plugin.
 - Standalone CLI: implemented as `ffc-apply` in `src/ffc`.
 - CLI DNG path: writes uncompressed CFA DNGs directly, then uses open-source `dnglab` or Adobe DNG Converter for lossless compressed mosaic DNGs when available.
 - Acceleration path: LibRaw/rawpy decode, SciPy native smoothing, precomputed per-CFA gain maps, NumPy/NumExpr correction by default, optional MLX backend on Apple Silicon.

@@ -31,7 +31,15 @@ def build_profile(
     clip_percentiles: tuple[float, float] = (0.1, 99.9),
     norm_percentile: float = 70.0,
     active_area: tuple[int, int, int, int] | None = None,
+    active_mask: np.ndarray | None = None,
 ) -> FlatFieldProfile:
+    if active_area is not None and active_mask is not None:
+        raise ValueError("Pass active_area or active_mask, not both.")
+    if active_mask is not None and active_mask.shape != correction.raw.shape:
+        raise ValueError(
+            f"Active mask shape {active_mask.shape} does not match correction raw shape {correction.raw.shape}."
+        )
+
     metadata = correction.metadata
     pattern_h, pattern_w = metadata.dng_cfa_repeat_dim
     planes: list[FlatFieldPlane] = []
@@ -49,24 +57,37 @@ def build_profile(
             pattern_w,
             active_area,
         )
-        active_plane = plane[crop_rows, crop_cols]
+        crop_mask = active_mask[phase_y::pattern_h, phase_x::pattern_w] if active_mask is not None else None
+        if crop_mask is not None and not bool(np.any(crop_mask)):
+            raise ValueError(f"Active mask does not overlap CFA phase ({phase_y}, {phase_x}).")
+
+        def active_values() -> np.ndarray:
+            if crop_mask is not None:
+                return plane[crop_mask]
+            return plane[crop_rows, crop_cols]
+
+        active_plane = active_values()
 
         if clip_percentiles is not None:
             low_p, high_p = clip_percentiles
-            sample = active_plane[::8, ::8]
+            sample = _sample_active(active_plane)
             low, high = np.percentile(sample, [low_p, high_p])
             np.clip(plane, max(1.0, float(low)), max(1.0, float(high)), out=plane)
+            active_plane = active_values()
 
         if smooth_sigma > 0:
             sigma = (smooth_sigma / pattern_h, smooth_sigma / pattern_w)
-            if active_area is None:
+            if crop_mask is not None:
+                plane = _masked_gaussian_mask(plane, crop_mask, sigma)
+                active_plane = active_values()
+            elif active_area is None:
                 plane = gaussian_filter(plane, sigma=sigma, mode="nearest", truncate=3.0).astype(np.float32, copy=False)
                 active_plane = plane[crop_rows, crop_cols]
             else:
                 plane = _masked_gaussian(plane, crop_rows, crop_cols, sigma)
                 active_plane = plane[crop_rows, crop_cols]
 
-        norm = float(np.percentile(active_plane[::8, ::8], norm_percentile))
+        norm = float(np.percentile(_sample_active(active_plane), norm_percentile))
         eps = max(1.0, norm * 0.001)
         gain = (norm / np.maximum(plane, eps)).astype(np.float32, copy=False)
         planes.append(FlatFieldPlane(phase_y, phase_x, black, norm, gain))
@@ -135,6 +156,27 @@ def _masked_gaussian(plane: np.ndarray, rows: slice, cols: slice, sigma: tuple[f
     smoothed = np.full_like(plane, fill, dtype=np.float32)
     np.divide(smooth_values, smooth_weights, out=smoothed, where=smooth_weights > 1.0e-6)
     return smoothed
+
+
+def _masked_gaussian_mask(plane: np.ndarray, active_mask: np.ndarray, sigma: tuple[float, float]) -> np.ndarray:
+    mask = active_mask.astype(np.float32, copy=False)
+    weighted = plane * mask
+    smooth_values = gaussian_filter(weighted, sigma=sigma, mode="constant", cval=0.0, truncate=3.0)
+    smooth_weights = gaussian_filter(mask, sigma=sigma, mode="constant", cval=0.0, truncate=3.0)
+    fill = float(np.median(_sample_active(plane[active_mask])))
+    smoothed = np.full_like(plane, fill, dtype=np.float32)
+    np.divide(smooth_values, smooth_weights, out=smoothed, where=smooth_weights > 1.0e-6)
+    return smoothed
+
+
+def _sample_active(values: np.ndarray) -> np.ndarray:
+    if values.ndim == 1:
+        sample = values[::64]
+    else:
+        sample = values[::8, ::8].reshape(-1)
+    if sample.size == 0:
+        return values.reshape(-1)
+    return sample
 
 
 def _validate_compatible(scan: RawFrame, profile: FlatFieldProfile) -> None:

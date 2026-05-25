@@ -221,9 +221,9 @@ local function getDevelopCrop(photo)
 
     return {
         left = cropValue(settings, "CropLeft", 0),
-        top = cropValue(settings, "CropTop", 1),
+        top = cropValue(settings, "CropTop", 0),
         right = cropValue(settings, "CropRight", 1),
-        bottom = cropValue(settings, "CropBottom", 0),
+        bottom = cropValue(settings, "CropBottom", 1),
         angle = cropValue(settings, "CropAngle", 0),
         orientation = cropValue(settings, "orientation", "AB"),
     }
@@ -267,6 +267,34 @@ local function writeCropList(path, photos, calibrationPhoto)
     return writeTextFile(path, table.concat(lines, "\n") .. "\n")
 end
 
+local function splitTabs(line)
+    local parts = {}
+    for part in (tostring(line or "") .. "\t"):gmatch("(.-)\t") do
+        table.insert(parts, part)
+    end
+    return parts
+end
+
+local function readCropFile(path)
+    local crops = {}
+    local text = readTextFile(path) or ""
+
+    for line in text:gmatch("[^\r\n]+") do
+        local parts = splitTabs(line)
+        if #parts >= 6 then
+            crops[parts[1]] = {
+                left = tonumber(parts[2]) or 0,
+                top = tonumber(parts[3]) or 0,
+                right = tonumber(parts[4]) or 1,
+                bottom = tonumber(parts[5]) or 1,
+                angle = tonumber(parts[6]) or 0,
+            }
+        end
+    end
+
+    return crops
+end
+
 local function addOptional(parts, flag, value)
     if trim(value) ~= "" then
         table.insert(parts, flag)
@@ -274,7 +302,7 @@ local function addOptional(parts, flag, value)
     end
 end
 
-local function buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, resultPath)
+local function buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath)
     local parts = {
         commandPrefix(settings.pythonCommand),
         shellQuote(settings.applyScriptPath),
@@ -286,6 +314,8 @@ local function buildCommand(settings, calibrationPath, selectedListPath, cropLis
         shellQuote(cropListPath),
         "--output-list",
         shellQuote(outputListPath),
+        "--output-crop-list",
+        shellQuote(outputCropListPath),
         "--result-file",
         shellQuote(resultPath),
         "--output-subdir",
@@ -331,6 +361,42 @@ local function importOutputs(catalog, outputPaths)
     end
 
     return imported, err
+end
+
+local function applyOutputCrops(catalog, outputPaths, importedPhotos, cropListPath)
+    local crops = readCropFile(cropListPath)
+    local hasCrops = false
+    for _ in pairs(crops) do
+        hasCrops = true
+        break
+    end
+
+    if not hasCrops then
+        return nil
+    end
+
+    local ok = LrTasks.pcall(function()
+        catalog:withWriteAccessDo("Apply Python flat-field crop settings", function()
+            for index, photo in ipairs(importedPhotos) do
+                local crop = crops[outputPaths[index]]
+                if crop then
+                    photo:applyDevelopSettings({
+                        CropLeft = crop.left,
+                        CropTop = crop.top,
+                        CropRight = crop.right,
+                        CropBottom = crop.bottom,
+                        CropAngle = crop.angle,
+                    })
+                end
+            end
+        end)
+    end)
+
+    if not ok then
+        return "The DNGs were imported, but Lightroom could not apply the matching crop settings."
+    end
+
+    return nil
 end
 
 local function selectPhotos(catalog, photos)
@@ -390,10 +456,12 @@ local function run()
         local selectedListPath = tempPath("-selected.txt")
         local cropListPath = tempPath("-crops.txt")
         local outputListPath = tempPath("-outputs.txt")
+        local outputCropListPath = tempPath("-output-crops.txt")
         local resultPath = tempPath("-result.txt")
         table.insert(tempFiles, selectedListPath)
         table.insert(tempFiles, cropListPath)
         table.insert(tempFiles, outputListPath)
+        table.insert(tempFiles, outputCropListPath)
         table.insert(tempFiles, resultPath)
 
         local wrote, writeErr = writeTextFile(selectedListPath, table.concat(photoPaths, "\n") .. "\n")
@@ -406,7 +474,7 @@ local function run()
             fail("Could not write crop list: " .. tostring(cropErr))
         end
 
-        local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, resultPath))
+        local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath))
         local result = parseResult(readTextFile(resultPath))
 
         if exitCode ~= 0 or result.status ~= "ok" then
@@ -423,9 +491,13 @@ local function run()
             fail("The DNGs were generated, but Lightroom could not import them:\n\n" .. tostring(importErr))
         end
 
+        local cropWarning = applyOutputCrops(catalog, outputPaths, imported, outputCropListPath)
         selectPhotos(catalog, imported)
 
         local warning = trim(result.warning)
+        if cropWarning then
+            warning = trim(warning .. "\n" .. cropWarning)
+        end
         local message = "Generated and imported " .. tostring(#imported) .. " flat-field corrected DNGs in:\n" .. tostring(result.output_dir)
         local style = "info"
         if warning ~= "" then

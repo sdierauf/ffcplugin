@@ -124,9 +124,9 @@ Use this when the flat-field image still contains the film holder or mask.
 5. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
 6. Choose `Use Active Photo`.
 
-The helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, and `CropBottom` develop settings, builds the flat-field gain map only from the cropped calibration region, and writes corrected DNGs whose default crop matches the selected Lightroom crop.
+The helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, `CropBottom`, and `CropAngle` develop settings. It builds the flat-field gain map from the actual Lightroom crop polygon, so straightened crops can exclude a mask even when the uncropped raw still contains it.
 
-Current limitation: use an axis-aligned crop. Lightroom crop rotation/straightening metadata is recorded by the plugin but not modeled by the raw pipeline yet.
+Corrected DNGs receive an axis-aligned default crop that bounds the selected Lightroom crop. When run from Lightroom, the plugin also reapplies adjusted crop settings to the imported DNGs so the catalog view keeps the same rotated crop.
 
 ## Output Notes
 
