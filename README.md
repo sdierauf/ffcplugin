@@ -98,6 +98,8 @@ The plugin has three Library menu commands under `Library > Plug-in Extras`:
 - `Apply Flat-Field With Python Pipeline...`
 - `Configure Flat-Field Stager...`
 
+The staging and Python pipeline commands show Lightroom progress scopes while they run. The Python pipeline reports profile calculation, per-photo processing counts, compression, and Lightroom import status.
+
 ### Stage For Lightroom FFC
 
 Use this when you want Lightroom Classic's built-in correction.

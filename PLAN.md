@@ -73,6 +73,7 @@ The SDK does not document a way for plugins to invoke Lightroom's built-in Flat-
 - Lightroom plugin: implemented in `lightroom-flatfield.lrplugin`.
 - Lightroom staging helper: implemented in `scripts/stage_calibration.py`.
 - Lightroom Python-pipeline helper: implemented in `scripts/run_ffc_apply.py` and exposed as `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+- Lightroom progress reporting: plugin commands use Lightroom progress scopes; the Python pipeline writes a progress file that the plugin polls for per-photo status.
 - Lightroom config bootstrap: implemented in `scripts/init_lightroom_config.py`; it installs missing Homebrew command-line dependencies, syncs the uv venv, and writes `lightroom-flatfield.lrplugin/ffcplugin.config` for the plugin to load.
 - Crop-aware Python pipeline: when the calibration frame is the active Lightroom selection, the plugin passes Lightroom crop metadata to the helper so masks outside the crop are excluded from the flat-field gain map. Rotated/straightened Lightroom crops are modeled as polygon masks, and adjusted crop settings are reapplied to imported DNGs from the Lightroom plugin.
 - Standalone CLI: implemented as `ffc-apply` in `src/ffc`.

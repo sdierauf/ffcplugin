@@ -2,6 +2,7 @@ local LrApplication = import "LrApplication"
 local LrDialogs = import "LrDialogs"
 local LrFileUtils = import "LrFileUtils"
 local LrPathUtils = import "LrPathUtils"
+local LrProgressScope = import "LrProgressScope"
 local LrTasks = import "LrTasks"
 
 local Settings = require "Settings"
@@ -337,8 +338,13 @@ end
 
 local function run()
     local tempFiles = {}
+    local progressScope = LrProgressScope {
+        title = "Staging flat-field calibration",
+    }
 
     local ok, err = LrTasks.pcall(function()
+        progressScope:setCaption("Reading selected photos")
+        progressScope:setPortionComplete(0, 6)
         local catalog = LrApplication.activeCatalog()
         local photos = getSelectedPhotos(catalog)
 
@@ -356,6 +362,8 @@ local function run()
             return
         end
 
+        progressScope:setCaption("Preparing staging helper")
+        progressScope:setPortionComplete(1, 6)
         local settings = Settings.effective()
         local activeSources = getActiveSources(catalog)
         if not Settings.pathExists(settings.helperScriptPath) then
@@ -372,6 +380,8 @@ local function run()
             fail("Could not write selected-photo list: " .. tostring(writeErr))
         end
 
+        progressScope:setCaption("Copying and timestamping calibration frame")
+        progressScope:setPortionComplete(2, 6)
         local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, resultPath))
         local result = parseResult(readTextFile(resultPath))
 
@@ -384,13 +394,19 @@ local function run()
             fail("The staging helper did not report a staged calibration path.")
         end
 
+        progressScope:setCaption("Importing staged calibration frame")
+        progressScope:setPortionComplete(3, 6)
         local stagedPhoto, importErr, addedSourceCount, sourceWarnings = importStagedPhoto(catalog, stagedPath, activeSources)
         if not stagedPhoto then
             fail("The calibration copy was staged, but Lightroom could not import it:\n\n" .. tostring(importErr))
         end
 
+        progressScope:setCaption("Selecting originals and staged calibration frame")
+        progressScope:setPortionComplete(4, 6)
         local restoreWarning = restoreActiveSources(catalog, activeSources)
         selectOriginalsAndCalibration(catalog, photos, stagedPhoto)
+        progressScope:setCaption("Flat-field calibration staged")
+        progressScope:setPortionComplete(6, 6)
 
         local warning = trim(result.warning)
         local warningLines = {}
@@ -418,6 +434,9 @@ local function run()
     end)
 
     cleanup(tempFiles)
+    LrTasks.pcall(function()
+        progressScope:done()
+    end)
 
     if not ok then
         LrDialogs.message("Flat-Field Stager", tostring(err), "critical")

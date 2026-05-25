@@ -2,6 +2,7 @@ local LrApplication = import "LrApplication"
 local LrDialogs = import "LrDialogs"
 local LrFileUtils = import "LrFileUtils"
 local LrPathUtils = import "LrPathUtils"
+local LrProgressScope = import "LrProgressScope"
 local LrTasks = import "LrTasks"
 
 local Settings = require "Settings"
@@ -80,6 +81,11 @@ local function readLines(path)
     end
 
     return lines
+end
+
+local function fileExists(path)
+    local exists = LrFileUtils.exists(path)
+    return exists == true or exists == "file"
 end
 
 local function urlDecode(value)
@@ -302,7 +308,11 @@ local function addOptional(parts, flag, value)
     end
 end
 
-local function buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath)
+local function fail(message)
+    error(message, 0)
+end
+
+local function buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath, progressPath)
     local parts = {
         commandPrefix(settings.pythonCommand),
         shellQuote(settings.applyScriptPath),
@@ -318,6 +328,8 @@ local function buildCommand(settings, calibrationPath, selectedListPath, cropLis
         shellQuote(outputCropListPath),
         "--result-file",
         shellQuote(resultPath),
+        "--progress-file",
+        shellQuote(progressPath),
         "--output-subdir",
         shellQuote(settings.outputSubfolder),
         "--backend",
@@ -336,6 +348,80 @@ local function buildCommand(settings, calibrationPath, selectedListPath, cropLis
     addOptional(parts, "--dng-converter", settings.dngConverterPath)
 
     return table.concat(parts, " ")
+end
+
+local function writeLauncherScript(scriptPath, command, resultPath, logPath)
+    local script
+
+    if isWindows() then
+        script = table.concat({
+            "@echo off",
+            command .. " > " .. shellQuote(logPath) .. " 2>&1",
+            "if errorlevel 1 if not exist " .. shellQuote(resultPath) .. " (",
+            "  echo status=error>" .. shellQuote(resultPath),
+            "  echo message=Python helper exited before writing a result file. See " .. logPath .. ".>>" .. shellQuote(resultPath),
+            ")",
+            "",
+        }, "\r\n")
+    else
+        script = table.concat({
+            "#!/bin/sh",
+            command .. " > " .. shellQuote(logPath) .. " 2>&1",
+            "code=$?",
+            "if [ \"$code\" -ne 0 ] && [ ! -s " .. shellQuote(resultPath) .. " ]; then",
+            "  {",
+            "    printf '%s\\n' 'status=error'",
+            "    printf '%s\\n' 'message=Python helper exited before writing a result file. See " .. logPath .. ".'",
+            "  } > " .. shellQuote(resultPath),
+            "fi",
+            "",
+        }, "\n")
+    end
+
+    return writeTextFile(scriptPath, script)
+end
+
+local function updateProgress(progressScope, progressPath, fallbackCaption)
+    local progress = parseResult(readTextFile(progressPath))
+    local caption = trim(progress.caption) ~= "" and progress.caption or fallbackCaption
+    local current = tonumber(progress.current)
+    local total = tonumber(progress.total)
+
+    LrTasks.pcall(function()
+        progressScope:setCaption(caption)
+    end)
+
+    if current and total and total > 0 then
+        LrTasks.pcall(function()
+            progressScope:setPortionComplete(current, total)
+        end)
+    end
+end
+
+local function launchAndPoll(command, resultPath, progressPath, scriptPath, logPath, progressScope, fallbackCaption)
+    local wrote, writeErr = writeLauncherScript(scriptPath, command, resultPath, logPath)
+    if not wrote then
+        fail("Could not write launcher script: " .. tostring(writeErr))
+    end
+
+    local launcher
+    if isWindows() then
+        launcher = "start \"\" /B cmd /C " .. shellQuote(scriptPath)
+    else
+        launcher = "/bin/sh " .. shellQuote(scriptPath) .. " &"
+    end
+
+    local launchExitCode = LrTasks.execute(launcher)
+    if launchExitCode ~= 0 then
+        fail("Could not launch the Python flat-field helper.")
+    end
+
+    updateProgress(progressScope, progressPath, fallbackCaption)
+    while not fileExists(resultPath) do
+        LrTasks.sleep(0.25)
+        updateProgress(progressScope, progressPath, fallbackCaption)
+    end
+    updateProgress(progressScope, progressPath, fallbackCaption)
 end
 
 local function importOutputs(catalog, outputPaths)
@@ -423,14 +509,15 @@ local function cleanup(paths)
     end
 end
 
-local function fail(message)
-    error(message, 0)
-end
-
 local function run()
     local tempFiles = {}
+    local progressScope = LrProgressScope {
+        title = "Python flat-field correction",
+    }
 
     local ok, err = LrTasks.pcall(function()
+        progressScope:setCaption("Preparing selected photos")
+        progressScope:setPortionComplete(0, 1)
         local catalog = LrApplication.activeCatalog()
         local photos = getSelectedPhotos(catalog)
 
@@ -458,11 +545,16 @@ local function run()
         local outputListPath = tempPath("-outputs.txt")
         local outputCropListPath = tempPath("-output-crops.txt")
         local resultPath = tempPath("-result.txt")
+        local progressPath = tempPath("-progress.txt")
+        local launcherPath = tempPath(isWindows() and "-helper.cmd" or "-helper.sh")
+        local logPath = tempPath("-helper.log")
         table.insert(tempFiles, selectedListPath)
         table.insert(tempFiles, cropListPath)
         table.insert(tempFiles, outputListPath)
         table.insert(tempFiles, outputCropListPath)
         table.insert(tempFiles, resultPath)
+        table.insert(tempFiles, progressPath)
+        table.insert(tempFiles, launcherPath)
 
         local wrote, writeErr = writeTextFile(selectedListPath, table.concat(photoPaths, "\n") .. "\n")
         if not wrote then
@@ -474,13 +566,19 @@ local function run()
             fail("Could not write crop list: " .. tostring(cropErr))
         end
 
-        local exitCode = LrTasks.execute(buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath))
+        local command = buildCommand(settings, calibrationPath, selectedListPath, cropListPath, outputListPath, outputCropListPath, resultPath, progressPath)
+        launchAndPoll(command, resultPath, progressPath, launcherPath, logPath, progressScope, "Running Python flat-field helper")
         local result = parseResult(readTextFile(resultPath))
 
-        if exitCode ~= 0 or result.status ~= "ok" then
+        if result.status ~= "ok" then
             fail(result.message ~= "" and result.message or "The Python flat-field helper failed.")
         end
+        LrTasks.pcall(function()
+            LrFileUtils.delete(logPath)
+        end)
 
+        progressScope:setCaption("Importing corrected DNGs into Lightroom")
+        progressScope:setPortionComplete(0, 1)
         local outputPaths = readLines(outputListPath)
         if #outputPaths == 0 then
             fail("The Python flat-field helper did not report any output DNGs.")
@@ -493,6 +591,8 @@ local function run()
 
         local cropWarning = applyOutputCrops(catalog, outputPaths, imported, outputCropListPath)
         selectPhotos(catalog, imported)
+        progressScope:setCaption("Python flat-field correction complete")
+        progressScope:setPortionComplete(1, 1)
 
         local warning = trim(result.warning)
         if cropWarning then
@@ -509,6 +609,9 @@ local function run()
     end)
 
     cleanup(tempFiles)
+    LrTasks.pcall(function()
+        progressScope:done()
+    end)
 
     if not ok then
         LrDialogs.message("Python Flat-Field Pipeline", tostring(err), "critical")

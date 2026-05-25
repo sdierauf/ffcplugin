@@ -91,6 +91,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-dir", help="Output directory. Defaults to a subfolder beside the first selected scan.")
     parser.add_argument("--output-subdir", default="flatfield-corrected", help="Default output subfolder name.")
     parser.add_argument("--result-file", help="Write Lightroom-friendly key/value results here.")
+    parser.add_argument("--progress-file", help="Write Lightroom-friendly progress key/value updates here.")
     parser.add_argument("--backend", choices=("auto", "numpy", "numexpr", "mlx"), default="auto")
     parser.add_argument("--compressor", choices=("auto", "adobe", "dnglab", "none"), default="auto")
     parser.add_argument("--compression", choices=("auto", "none", "lossless-jpeg", "lossless-jxl"), default="auto")
@@ -139,6 +140,31 @@ def write_result(path: str | None, values: dict[str, object]) -> None:
         Path(path).write_text(text, encoding="utf-8")
     else:
         sys.stdout.write(text)
+
+
+def write_progress(
+    path: str | None,
+    caption: str,
+    *,
+    current: int = 0,
+    total: int = 0,
+    status: str = "running",
+) -> None:
+    if not path:
+        return
+
+    progress_path = Path(path).expanduser()
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+    values = {
+        "status": status,
+        "caption": caption,
+        "current": current,
+        "total": total,
+    }
+    text = "\n".join(f"{key}={quote(str(value), safe='')}" for key, value in values.items()) + "\n"
+    tmp_path = progress_path.with_name(progress_path.name + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    os.replace(tmp_path, progress_path)
 
 
 def choose_output_dir(args: argparse.Namespace, selected: list[Path]) -> Path:
@@ -236,15 +262,20 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     if missing:
         raise FileNotFoundError(f"Selected scan path does not exist: {missing[0]}")
 
+    total = len(selected)
+    write_progress(args.progress_file, "Preparing output folder", current=0, total=total)
     output_dir = choose_output_dir(args, selected)
     output_dir.mkdir(parents=True, exist_ok=True)
     crops = read_crop_list(args.crop_list)
 
+    write_progress(args.progress_file, "Resolving compressor and backend", current=0, total=total)
     compressor, compressor_path, resolved_compression = choose_compressor(args)
     backend = choose_backend(args.backend)
+    write_progress(args.progress_file, "Reading flat-field calibration frame", current=0, total=total)
     correction = read_raw_frame(calibration)
     calibration_crop = crop_for_path(crops, calibration)
     active_mask = raw_crop_mask(correction.metadata, calibration_crop) if calibration_crop else None
+    write_progress(args.progress_file, "Calculating flat-field profile", current=0, total=total)
     profile = build_profile(
         correction,
         smooth_sigma=args.smooth_sigma,
@@ -270,7 +301,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         write_dir = Path(temp_root.name)
 
     try:
-        for selected_path, output_path in zip(selected, output_paths, strict=True):
+        for index, (selected_path, output_path) in enumerate(zip(selected, output_paths, strict=True), start=1):
+            write_progress(
+                args.progress_file,
+                f"Processing {index}/{total}: {selected_path.name}",
+                current=index - 1,
+                total=total,
+            )
             scan = read_raw_frame(selected_path)
             corrected = apply_profile(scan, profile, backend=backend)
             metadata = scan.metadata
@@ -284,12 +321,20 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             temp_path = write_dir / output_path.name
             write_mosaic_dng(temp_path, corrected, metadata, software="ffcplugin")
             temp_paths.append(temp_path)
+            write_progress(
+                args.progress_file,
+                f"Processed {index}/{total}: {selected_path.name}",
+                current=index,
+                total=total,
+            )
 
         if compressor == "dnglab":
             assert compressor_path is not None
+            write_progress(args.progress_file, "Compressing DNGs with dnglab", current=total, total=total)
             compress_with_dnglab(temp_paths, output_dir, dnglab_path=compressor_path)
         elif compressor == "adobe":
             assert compressor_path is not None
+            write_progress(args.progress_file, "Compressing DNGs with Adobe DNG Converter", current=total, total=total)
             compress_with_adobe_dng_converter(
                 temp_paths,
                 output_dir,
@@ -300,6 +345,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         if temp_root is not None:
             temp_root.cleanup()
 
+    write_progress(args.progress_file, "Writing Lightroom output lists", current=total, total=total)
     Path(args.output_list).write_text("\n".join(str(path) for path in output_paths) + "\n", encoding="utf-8")
     write_crop_list(args.output_crop_list, output_crops)
     return {
@@ -319,12 +365,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     try:
+        write_progress(args.progress_file, "Loading Python pipeline", current=0, total=1)
         load_pipeline_modules()
         result = run(args)
     except Exception as exc:
+        write_progress(args.progress_file, f"Failed: {exc}", current=0, total=1, status="error")
         write_result(args.result_file, {"status": "error", "message": str(exc)})
         return 1
 
+    write_progress(args.progress_file, "Python flat-field correction complete", current=1, total=1, status="done")
     write_result(args.result_file, result)
     return 0
 
