@@ -227,16 +227,20 @@ def _default_originals_dir(input_path: Path, originals_dir: str) -> Path:
 
 def _discover_inputs(input_path: Path, patterns: list[str] | None, recursive: bool, correction_path: Path) -> list[Path]:
     if input_path.is_file():
-        return [] if input_path.resolve() == correction_path.resolve() else [input_path]
+        return [] if _is_ignored_input(input_path) or input_path.resolve() == correction_path.resolve() else [input_path]
 
     globs = patterns or list(DEFAULT_PATTERNS)
     results: list[Path] = []
     for pattern in globs:
         iterator = input_path.rglob(pattern) if recursive else input_path.glob(pattern)
         for path in iterator:
-            if path.is_file() and path.resolve() != correction_path.resolve():
+            if path.is_file() and not _is_ignored_input(path) and path.resolve() != correction_path.resolve():
                 results.append(path)
     return sorted(set(results))
+
+
+def _is_ignored_input(path: Path) -> bool:
+    return path.name.startswith("._") or "__MACOSX" in path.parts
 
 
 def _exclude_originals_dir(inputs: list[Path], originals_dir: Path) -> list[Path]:
