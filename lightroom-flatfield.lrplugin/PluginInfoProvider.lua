@@ -5,9 +5,14 @@ local PluginInfoProvider = {}
 function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
     local settings = Settings.effective()
     local helperStatus = "not found"
+    local applyStatus = "not found"
 
     if Settings.pathExists(settings.helperScriptPath) then
         helperStatus = "found"
+    end
+
+    if Settings.pathExists(settings.applyScriptPath) then
+        applyStatus = "found"
     end
 
     return {
@@ -28,7 +33,15 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
                     fill_horizontal = 1,
                 },
                 f:static_text {
-                    title = "Helper: " .. settings.helperScriptPath .. " (" .. helperStatus .. ")",
+                    title = "Staging helper: " .. settings.helperScriptPath .. " (" .. helperStatus .. ")",
+                    fill_horizontal = 1,
+                },
+                f:static_text {
+                    title = "Python apply helper: " .. settings.applyScriptPath .. " (" .. applyStatus .. ")",
+                    fill_horizontal = 1,
+                },
+                f:static_text {
+                    title = "Python pipeline: backend=" .. settings.backend .. ", compressor=" .. settings.compressor .. ", output subfolder=" .. settings.outputSubfolder,
                     fill_horizontal = 1,
                 },
                 f:static_text {

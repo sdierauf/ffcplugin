@@ -14,6 +14,11 @@ return {
             enabledWhen = "photosSelected",
         },
         {
+            title = "Apply Flat-Field With Python Pipeline...",
+            file = "ApplyPythonFlatField.lua",
+            enabledWhen = "photosSelected",
+        },
+        {
             title = "Configure Flat-Field Stager...",
             file = "Configure.lua",
         },

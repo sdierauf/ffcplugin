@@ -49,9 +49,17 @@ Adobe DNG Converter is still supported, and is required for `--compression lossl
 3. Select the `lightroom-flatfield.lrplugin` folder from this repo.
 4. Configure Python and ExifTool paths in the plugin manager if the defaults are not correct.
 5. In Library, select the scans for one batch.
-6. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...`.
+6. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...` to use Lightroom's Flat-Field Correction, or `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...` to run this repo's raw/DNG implementation directly.
 7. Pick your reusable calibration raw.
-8. After the plugin imports and selects the staged frame, run `Library > Flat-Field Correction`.
+8. For the staging flow, after the plugin imports and selects the staged frame, run `Library > Flat-Field Correction`.
+
+For the Python pipeline menu item, set the plugin's Python command to an environment with the project installed, for example:
+
+```sh
+/Users/sdierauf/git/ffcplugin/.venv/bin/python
+```
+
+The Python pipeline writes corrected DNGs to a `flatfield-corrected` subfolder next to the selected scans by default, imports them into the catalog, and selects the generated DNGs.
 
 ExifTool is optional but recommended for the Lightroom helper because Lightroom sorts and detects calibration frames more reliably when the duplicate calibration raw has a capture timestamp after the selected batch. Without ExifTool, the helper falls back to changing only filesystem timestamps.
 
