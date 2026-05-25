@@ -58,6 +58,7 @@ uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless
 uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
+uv run ffc-apply correctionimage.ARW scans/ --norm-percentile 50
 ```
 
 Backends:
@@ -132,6 +133,7 @@ Current limitation: use an axis-aligned crop. Lightroom crop rotation/straighten
 - The CLI and Python plugin workflow write true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
 - The raw decode path uses LibRaw through `rawpy`.
 - The flat-field profile is built per CFA phase from black-subtracted raw values; smoothing is done once per correction frame.
+- The default flat-field normalization uses the 70th percentile of the smoothed correction frame. On the sample set, this is closer to Lightroom Classic's output than median normalization. Use `--norm-percentile 50` for the previous median behavior.
 - If neither `dnglab` nor Adobe DNG Converter is available, output DNGs are valid but uncompressed and therefore large.
 - The DNG writer preserves raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, Lightroom XMP, or all EXIF sub-IFDs from the source raw.
 - Keep calibration frames matched to the same light source, camera, lens, aperture, focus distance, and scan geometry whenever possible.

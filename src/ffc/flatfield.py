@@ -29,6 +29,7 @@ def build_profile(
     *,
     smooth_sigma: float = 96.0,
     clip_percentiles: tuple[float, float] = (0.1, 99.9),
+    norm_percentile: float = 70.0,
     active_area: tuple[int, int, int, int] | None = None,
 ) -> FlatFieldProfile:
     metadata = correction.metadata
@@ -65,7 +66,7 @@ def build_profile(
                 plane = _masked_gaussian(plane, crop_rows, crop_cols, sigma)
                 active_plane = plane[crop_rows, crop_cols]
 
-        norm = float(np.median(active_plane[::8, ::8]))
+        norm = float(np.percentile(active_plane[::8, ::8], norm_percentile))
         eps = max(1.0, norm * 0.001)
         gain = (norm / np.maximum(plane, eps)).astype(np.float32, copy=False)
         planes.append(FlatFieldPlane(phase_y, phase_x, black, norm, gain))

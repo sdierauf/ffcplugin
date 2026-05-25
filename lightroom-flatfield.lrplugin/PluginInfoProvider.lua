@@ -41,7 +41,7 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
                     fill_horizontal = 1,
                 },
                 f:static_text {
-                    title = "Python pipeline: backend=" .. settings.backend .. ", compressor=" .. settings.compressor .. ", output subfolder=" .. settings.outputSubfolder,
+                    title = "Python pipeline: backend=" .. settings.backend .. ", compressor=" .. settings.compressor .. ", norm percentile=" .. settings.normPercentile .. ", output subfolder=" .. settings.outputSubfolder,
                     fill_horizontal = 1,
                 },
                 f:static_text {

@@ -80,6 +80,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dnglab", help="Optional dnglab executable path.")
     parser.add_argument("--dng-converter", help="Optional Adobe DNG Converter executable or .app path.")
     parser.add_argument("--smooth-sigma", type=float, default=96.0)
+    parser.add_argument("--norm-percentile", type=float, default=70.0)
     parser.add_argument("--suffix", default="_ffc")
     parser.add_argument("--overwrite", action="store_true", default=True)
     return parser.parse_args(argv)
@@ -221,7 +222,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     correction = read_raw_frame(calibration)
     calibration_crop = crop_for_path(crops, calibration)
     active_area = normalized_crop_to_raw_area(correction.metadata, calibration_crop) if calibration_crop else None
-    profile = build_profile(correction, smooth_sigma=args.smooth_sigma, active_area=active_area)
+    profile = build_profile(
+        correction,
+        smooth_sigma=args.smooth_sigma,
+        norm_percentile=args.norm_percentile,
+        active_area=active_area,
+    )
 
     output_paths = [output_dir / f"{path.stem}{args.suffix}.dng" for path in selected]
     for path in output_paths:
@@ -277,6 +283,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "compressor": compressor,
         "compression": resolved_compression,
         "crop_aware": "true" if active_area else "false",
+        "norm_percentile": args.norm_percentile,
         "warning": "" if compressor != "none" else "No compact DNG compressor was used; outputs are uncompressed and large.",
     }
 

@@ -298,6 +298,8 @@ local function buildCommand(settings, calibrationPath, selectedListPath, cropLis
         shellQuote(settings.compression),
         "--smooth-sigma",
         shellQuote(settings.smoothSigma),
+        "--norm-percentile",
+        shellQuote(settings.normPercentile),
     }
 
     addOptional(parts, "--dnglab", settings.dnglabPath)

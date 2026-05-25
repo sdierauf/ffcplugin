@@ -82,6 +82,7 @@ function Settings.get()
         compressor = trim(prefs.compressor),
         compression = trim(prefs.compression),
         smoothSigma = trim(prefs.smoothSigma),
+        normPercentile = trim(prefs.normPercentile),
         dnglabPath = trim(prefs.dnglabPath),
         dngConverterPath = trim(prefs.dngConverterPath),
     }
@@ -100,6 +101,7 @@ function Settings.effective(settings)
         compressor = trim(settings.compressor) ~= "" and trim(settings.compressor) or "auto",
         compression = trim(settings.compression) ~= "" and trim(settings.compression) or "auto",
         smoothSigma = trim(settings.smoothSigma) ~= "" and trim(settings.smoothSigma) or "96",
+        normPercentile = trim(settings.normPercentile) ~= "" and trim(settings.normPercentile) or "70",
         dnglabPath = trim(settings.dnglabPath),
         dngConverterPath = trim(settings.dngConverterPath),
     }
@@ -115,6 +117,7 @@ function Settings.save(settings)
     prefs.compressor = trim(settings.compressor)
     prefs.compression = trim(settings.compression)
     prefs.smoothSigma = trim(settings.smoothSigma)
+    prefs.normPercentile = trim(settings.normPercentile)
     prefs.dnglabPath = trim(settings.dnglabPath)
     prefs.dngConverterPath = trim(settings.dngConverterPath)
 end
@@ -152,6 +155,7 @@ function Settings.showDialog()
         properties.compressor = current.compressor
         properties.compression = current.compression
         properties.smoothSigma = current.smoothSigma
+        properties.normPercentile = current.normPercentile
         properties.dnglabPath = current.dnglabPath
         properties.dngConverterPath = current.dngConverterPath
 
@@ -324,6 +328,19 @@ function Settings.showDialog()
             f:row {
                 spacing = f:control_spacing(),
                 f:static_text {
+                    title = "Norm percentile",
+                    width = 150,
+                    alignment = "right",
+                },
+                f:edit_field {
+                    value = bind "normPercentile",
+                    width_in_chars = 16,
+                },
+            },
+
+            f:row {
+                spacing = f:control_spacing(),
+                f:static_text {
                     title = "dnglab path",
                     width = 150,
                     alignment = "right",
@@ -388,6 +405,7 @@ function Settings.showDialog()
                 compressor = properties.compressor,
                 compression = properties.compression,
                 smoothSigma = properties.smoothSigma,
+                normPercentile = properties.normPercentile,
                 dnglabPath = properties.dnglabPath,
                 dngConverterPath = properties.dngConverterPath,
             }

@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         correction,
         smooth_sigma=args.smooth_sigma,
         clip_percentiles=(args.clip_low, args.clip_high),
+        norm_percentile=args.norm_percentile,
     )
 
     use_converter = compressor != "none"
@@ -146,6 +147,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--clip-low", type=float, default=0.1, help="Low percentile clip for correction-frame outliers.")
     parser.add_argument("--clip-high", type=float, default=99.9, help="High percentile clip for correction-frame outliers.")
+    parser.add_argument(
+        "--norm-percentile",
+        type=float,
+        default=70.0,
+        help="Correction-frame percentile used as the flat-field normalization point. 70 is closest to Lightroom on the sample set.",
+    )
     parser.add_argument(
         "--backend",
         choices=("auto", "numpy", "numexpr", "mlx"),
