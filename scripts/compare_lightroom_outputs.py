@@ -14,7 +14,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tool_outputs", help="Folder containing this tool's corrected DNGs.")
     parser.add_argument("lightroom_outputs", help="Folder containing Lightroom corrected DNGs.")
-    parser.add_argument("--suffix", default="-ffc", help="Suffix used on this tool's output stems.")
+    parser.add_argument("--suffix", default="_ffc", help="Suffix used on this tool's output stems.")
     return parser.parse_args()
 
 
@@ -71,4 +71,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

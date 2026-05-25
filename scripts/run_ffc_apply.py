@@ -80,7 +80,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dnglab", help="Optional dnglab executable path.")
     parser.add_argument("--dng-converter", help="Optional Adobe DNG Converter executable or .app path.")
     parser.add_argument("--smooth-sigma", type=float, default=96.0)
-    parser.add_argument("--suffix", default="-ffc")
+    parser.add_argument("--suffix", default="_ffc")
     parser.add_argument("--overwrite", action="store_true", default=True)
     return parser.parse_args(argv)
 

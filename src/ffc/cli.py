@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -18,6 +19,7 @@ from .flatfield import apply_profile, build_profile
 from .rawio import read_raw_frame
 
 DEFAULT_PATTERNS = ("*.ARW", "*.arw")
+DEFAULT_ORIGINALS_DIR = "originals"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,10 +28,12 @@ def main(argv: list[str] | None = None) -> int:
 
     correction_path = Path(args.correction).expanduser()
     input_path = Path(args.input).expanduser()
-    output_dir = Path(args.output).expanduser()
+    output_dir = _default_output_dir(input_path) if args.output is None else Path(args.output).expanduser()
+    originals_dir = _default_originals_dir(input_path, args.originals_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     inputs = _discover_inputs(input_path, args.include, args.recursive, correction_path)
+    inputs = _exclude_originals_dir(inputs, originals_dir)
     if not inputs:
         parser.error(f"No input scans found in {input_path}")
 
@@ -96,6 +100,10 @@ def main(argv: list[str] | None = None) -> int:
                     mode=resolved_compression,  # type: ignore[arg-type]
                 )
 
+    if not args.keep_originals:
+        moved_paths = _move_originals(inputs, input_path, originals_dir)
+        print(f"Moved {len(moved_paths)} original raw file(s) to {originals_dir}", file=sys.stderr)
+
     for path in output_paths:
         print(path)
     return 0
@@ -108,7 +116,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("correction", help="Path to the flat-field/correction raw image.")
     parser.add_argument("input", help="Scan raw file or folder of scan raws.")
-    parser.add_argument("-o", "--output", default="ffc-output", help="Output folder for corrected DNGs.")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default=None,
+        help="Output folder for corrected DNGs. Default: the input folder, so corrected DNGs remain at the scan root.",
+    )
     parser.add_argument(
         "--include",
         action="append",
@@ -116,7 +129,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Glob for input files. Can be repeated. Default: *.ARW and *.arw.",
     )
     parser.add_argument("--recursive", action="store_true", help="Search input folders recursively.")
-    parser.add_argument("--suffix", default="-ffc", help="Suffix added before .dng for output files.")
+    parser.add_argument("--suffix", default="_ffc", help="Suffix added before .dng for output files.")
+    parser.add_argument("--keep-originals", action="store_true", help="Do not move source raw files after successful correction.")
+    parser.add_argument(
+        "--originals-dir",
+        default=DEFAULT_ORIGINALS_DIR,
+        help="Folder for source raws after successful correction. Relative paths are resolved under the input folder.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing outputs.")
     parser.add_argument("--dry-run", action="store_true", help="Print planned output paths without writing files.")
     parser.add_argument(
@@ -151,6 +170,16 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _default_output_dir(input_path: Path) -> Path:
+    return input_path.parent if input_path.is_file() else input_path
+
+
+def _default_originals_dir(input_path: Path, originals_dir: str) -> Path:
+    base = input_path.parent if input_path.is_file() else input_path
+    configured = Path(originals_dir).expanduser()
+    return configured if configured.is_absolute() else base / configured
+
+
 def _discover_inputs(input_path: Path, patterns: list[str] | None, recursive: bool, correction_path: Path) -> list[Path]:
     if input_path.is_file():
         return [] if input_path.resolve() == correction_path.resolve() else [input_path]
@@ -163,6 +192,69 @@ def _discover_inputs(input_path: Path, patterns: list[str] | None, recursive: bo
             if path.is_file() and path.resolve() != correction_path.resolve():
                 results.append(path)
     return sorted(set(results))
+
+
+def _exclude_originals_dir(inputs: list[Path], originals_dir: Path) -> list[Path]:
+    try:
+        originals_resolved = originals_dir.resolve()
+    except FileNotFoundError:
+        originals_resolved = originals_dir.absolute()
+
+    filtered: list[Path] = []
+    for path in inputs:
+        try:
+            path.resolve().relative_to(originals_resolved)
+        except ValueError:
+            filtered.append(path)
+    return filtered
+
+
+def _move_originals(inputs: list[Path], input_path: Path, originals_dir: Path) -> list[Path]:
+    originals_dir.mkdir(parents=True, exist_ok=True)
+    root = input_path.parent if input_path.is_file() else input_path
+    moves: list[tuple[Path, Path]] = []
+    seen_sources: set[str] = set()
+
+    for source in inputs:
+        relative = _relative_to_root(source, root)
+        destination = originals_dir / relative
+        moves.append((source, destination))
+        seen_sources.add(_path_key(source))
+
+        for sidecar in _sidecar_paths(source):
+            sidecar_key = _path_key(sidecar)
+            if sidecar.exists() and sidecar_key not in seen_sources:
+                sidecar_destination = destination.with_suffix(sidecar.suffix)
+                moves.append((sidecar, sidecar_destination))
+                seen_sources.add(sidecar_key)
+
+    for source, destination in moves:
+        if destination.exists():
+            raise FileExistsError(f"Refusing to move {source}; destination already exists: {destination}")
+
+    moved: list[Path] = []
+    for source, destination in moves:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+        if source.suffix.lower() != ".xmp":
+            moved.append(destination)
+
+    return moved
+
+
+def _relative_to_root(path: Path, root: Path) -> Path:
+    try:
+        return path.relative_to(root)
+    except ValueError:
+        return Path(path.name)
+
+
+def _sidecar_paths(path: Path) -> list[Path]:
+    return [path.with_suffix(".xmp"), path.with_suffix(".XMP")]
+
+
+def _path_key(path: Path) -> str:
+    return str(path.resolve()).lower()
 
 
 def _choose_compressor(

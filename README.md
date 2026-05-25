@@ -7,12 +7,26 @@ Reusable flat-field correction tools for camera-scanned film:
 
 ## CLI Quick Start
 
+Install the Homebrew packages used by the normal macOS workflow:
+
 ```sh
-uv sync --extra apple --extra dev
-uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --output corrected --overwrite
+brew install uv dnglab exiftool
 ```
 
-By default the CLI processes `.ARW` files in the input folder, writes mosaic raw DNGs, and uses a compact lossless DNG compressor when available. It prefers the open-source `dnglab` tool for lossless JPEG DNGs, then falls back to Adobe DNG Converter, then to uncompressed DNGs.
+Optional: install Adobe DNG Converter if you want Adobe's compressor or `--compression lossless-jxl`:
+
+```sh
+brew install --cask adobe-dng-converter
+```
+
+Then install the project environment and run the CLI:
+
+```sh
+uv sync --extra apple --extra dev
+uv run ffc-apply "sample scans/correctionimage.ARW" "sample scans" --overwrite
+```
+
+By default the CLI processes `.ARW` files in the input folder, writes corrected mosaic raw DNGs back into that same root folder using an `_ffc.dng` suffix, then moves the original raws into an `originals/` subfolder after the DNGs are successfully written. It prefers the open-source `dnglab` tool for lossless JPEG DNGs, then falls back to Adobe DNG Converter, then to uncompressed DNGs.
 
 Useful options:
 
@@ -22,6 +36,7 @@ uv run ffc-apply correctionimage.ARW scans/ --include "*.NEF" --include "*.CR3" 
 uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless-jxl
 uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
+uv run ffc-apply correctionimage.ARW scans/ --keep-originals
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
 ```
 
