@@ -17,7 +17,7 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
 
     return {
         {
-            title = "Flat-Field Stager",
+            title = "Flat Field Correction",
             bind_to_object = propertyTable,
 
             f:column {
@@ -25,7 +25,7 @@ function PluginInfoProvider.sectionsForTopOfDialog(f, propertyTable)
                 fill_horizontal = 1,
 
                 f:static_text {
-                    title = "Command: Library > Plug-in Extras > Stage Flat-Field Calibration Frame...",
+                    title = "Command: Library > Plug-in Extras > Flat Field Correction...",
                     fill_horizontal = 1,
                 },
                 f:static_text {

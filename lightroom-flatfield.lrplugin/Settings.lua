@@ -290,7 +290,7 @@ function Settings.pathExists(path)
 end
 
 function Settings.showDialog()
-    LrFunctionContext.callWithContext("FlatFieldStagerSettings", function(context)
+    LrFunctionContext.callWithContext("FlatFieldCorrectionSettings", function(context)
         local current = Settings.get()
         local effective = Settings.effective(current)
         local f = LrView.osFactory()
@@ -394,7 +394,7 @@ function Settings.showDialog()
         }
 
         local result = LrDialogs.presentModalDialog {
-            title = "Flat-Field Stager Settings",
+            title = "Flat Field Correction Settings",
             contents = contents,
             actionVerb = "Save Config Path",
         }

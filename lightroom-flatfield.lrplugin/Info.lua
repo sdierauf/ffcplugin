@@ -3,24 +3,14 @@ return {
     LrSdkMinimumVersion = 3.0,
 
     LrToolkitIdentifier = "com.sdierauf.lightroom-flatfield-stager",
-    LrPluginName = "Flat-Field Stager",
+    LrPluginName = "Flat Field Correction",
 
     LrPluginInfoProvider = "PluginInfoProvider.lua",
 
     LrLibraryMenuItems = {
         {
-            title = "Stage Flat-Field Calibration Frame...",
-            file = "StageFlatField.lua",
-            enabledWhen = "photosSelected",
-        },
-        {
-            title = "Apply Flat-Field With Python Pipeline...",
-            file = "ApplyPythonFlatField.lua",
-            enabledWhen = "photosSelected",
-        },
-        {
-            title = "Configure Flat-Field Stager...",
-            file = "Configure.lua",
+            title = "Flat Field Correction...",
+            file = "FlatFieldCorrection.lua",
         },
     },
 

@@ -94,11 +94,15 @@ Regenerate that config after moving the repo, recreating `.venv`, or changing to
 python3 scripts/init_lightroom_config.py
 ```
 
-The plugin has three Library menu commands under `Library > Plug-in Extras`:
+The plugin has one Library menu command under `Library > Plug-in Extras`:
 
-- `Stage Flat-Field Calibration Frame...`
-- `Apply Flat-Field With Python Pipeline...`
-- `Configure Flat-Field Stager...`
+- `Flat Field Correction...`
+
+That command opens a small menu with:
+
+- `Stage Calibration Frame...`
+- `Apply Python Pipeline...`
+- `Configure...`
 
 The staging and Python pipeline commands show Lightroom progress scopes while they run. The Python pipeline reports profile calculation, per-photo processing counts, compression, and Lightroom import status.
 
@@ -107,7 +111,7 @@ The staging and Python pipeline commands show Lightroom progress scopes while th
 Use this when you want Lightroom Classic's built-in correction.
 
 1. Select the scans in Library.
-2. Run `Library > Plug-in Extras > Stage Flat-Field Calibration Frame...`.
+2. Run `Library > Plug-in Extras > Flat Field Correction...`, then choose `Stage Calibration Frame...`.
 3. Pick an existing calibration raw from disk.
 4. The plugin copies that raw beside the selected batch, timestamps it after the latest selected photo when ExifTool is available, imports it, adds it to the active regular collection source when Lightroom is currently showing one, and selects the scans plus the staged calibration frame.
 5. Run Lightroom's `Library > Flat-Field Correction`.
@@ -121,7 +125,7 @@ If the active source is a smart collection or collection set, Lightroom does not
 Use this when you want this repo's raw/DNG implementation from inside Lightroom.
 
 1. Select the scans in Library.
-2. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+2. Run `Library > Plug-in Extras > Flat Field Correction...`, then choose `Apply Python Pipeline...`.
 3. Choose a calibration source:
    - `Use Active Photo` uses the active selected Lightroom photo as the calibration frame and removes it from the scan list.
    - `Choose File` picks an uncataloged raw from disk.
@@ -138,7 +142,7 @@ Use this when the flat-field image still contains the film holder or mask.
 2. Apply the same Lightroom crop to the negatives and the flat-field image so the mask is outside the visible crop.
 3. Select the negatives plus the flat-field image.
 4. Make the flat-field image the active selected photo.
-5. Run `Library > Plug-in Extras > Apply Flat-Field With Python Pipeline...`.
+5. Run `Library > Plug-in Extras > Flat Field Correction...`, then choose `Apply Python Pipeline...`.
 6. Choose `Use Active Photo`.
 
 The helper reads Lightroom's `CropLeft`, `CropTop`, `CropRight`, `CropBottom`, and `CropAngle` develop settings. It builds the flat-field gain map from the actual Lightroom crop polygon, so straightened crops can exclude a mask even when the uncropped raw still contains it.

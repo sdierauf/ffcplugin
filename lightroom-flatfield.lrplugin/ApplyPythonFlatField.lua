@@ -594,7 +594,7 @@ local function run()
 
         local settings = Settings.effective()
         if not Settings.pathExists(settings.applyScriptPath) then
-            fail("The Python apply helper was not found:\n\n" .. settings.applyScriptPath .. "\n\nUse Configure Flat-Field Stager to choose scripts/run_ffc_apply.py.")
+            fail("The Python apply helper was not found:\n\n" .. settings.applyScriptPath .. "\n\nOpen Flat Field Correction... and choose Configure to choose scripts/run_ffc_apply.py.")
         end
 
         settings = chooseApplyOptions(settings)
@@ -680,4 +680,14 @@ local function run()
     end
 end
 
-LrTasks.startAsyncTask(run, "Apply Flat-Field With Python Pipeline")
+local ApplyPythonFlatField = {}
+
+function ApplyPythonFlatField.run()
+    run()
+end
+
+function ApplyPythonFlatField.start()
+    LrTasks.startAsyncTask(run, "Apply Flat-Field With Python Pipeline")
+end
+
+return ApplyPythonFlatField

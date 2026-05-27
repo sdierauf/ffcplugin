@@ -367,7 +367,7 @@ local function run()
         local settings = Settings.effective()
         local activeSources = getActiveSources(catalog)
         if not Settings.pathExists(settings.helperScriptPath) then
-            fail("The helper script was not found:\n\n" .. settings.helperScriptPath .. "\n\nUse Configure Flat-Field Stager to choose scripts/stage_calibration.py.")
+            fail("The helper script was not found:\n\n" .. settings.helperScriptPath .. "\n\nOpen Flat Field Correction... and choose Configure to choose scripts/stage_calibration.py.")
         end
 
         local selectedListPath = tempPath("-selected.txt")
@@ -439,8 +439,18 @@ local function run()
     end)
 
     if not ok then
-        LrDialogs.message("Flat-Field Stager", tostring(err), "critical")
+        LrDialogs.message("Flat Field Correction", tostring(err), "critical")
     end
 end
 
-LrTasks.startAsyncTask(run, "Stage Flat-Field Calibration Frame")
+local StageFlatField = {}
+
+function StageFlatField.run()
+    run()
+end
+
+function StageFlatField.start()
+    LrTasks.startAsyncTask(run, "Stage Flat-Field Calibration Frame")
+end
+
+return StageFlatField
