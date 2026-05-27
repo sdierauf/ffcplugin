@@ -28,6 +28,7 @@ find_dnglab = None
 write_mosaic_dng = None
 apply_profile = None
 build_profile = None
+ensure_unique_paths = None
 read_raw_frame = None
 LightroomCrop = None
 raw_crop_bounding_area = None
@@ -44,6 +45,7 @@ def load_pipeline_modules() -> None:
     global write_mosaic_dng
     global apply_profile
     global build_profile
+    global ensure_unique_paths
     global read_raw_frame
     global LightroomCrop
     global raw_crop_bounding_area
@@ -64,6 +66,7 @@ def load_pipeline_modules() -> None:
     from ffc.lightroom_crop import raw_crop_bounding_area as _raw_crop_bounding_area
     from ffc.lightroom_crop import raw_crop_mask as _raw_crop_mask
     from ffc.lightroom_crop import relative_crop_for_area as _relative_crop_for_area
+    from ffc.paths import ensure_unique_paths as _ensure_unique_paths
     from ffc.rawio import read_raw_frame as _read_raw_frame
 
     choose_backend = _choose_backend
@@ -74,6 +77,7 @@ def load_pipeline_modules() -> None:
     write_mosaic_dng = _write_mosaic_dng
     apply_profile = _apply_profile
     build_profile = _build_profile
+    ensure_unique_paths = _ensure_unique_paths
     read_raw_frame = _read_raw_frame
     LightroomCrop = _LightroomCrop
     raw_crop_bounding_area = _raw_crop_bounding_area
@@ -252,6 +256,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     assert write_mosaic_dng is not None
     assert compress_with_dnglab is not None
     assert compress_with_adobe_dng_converter is not None
+    assert ensure_unique_paths is not None
     assert raw_crop_bounding_area is not None
     assert raw_crop_mask is not None
     assert relative_crop_for_area is not None
@@ -294,6 +299,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     )
 
     output_paths = [output_dir / f"{path.stem}{args.suffix}.dng" for path in selected]
+    ensure_unique_paths(output_paths, "output DNG path")
     for path in output_paths:
         if path.exists() and args.replace_existing:
             path.unlink()

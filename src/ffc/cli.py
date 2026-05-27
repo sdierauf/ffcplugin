@@ -16,6 +16,7 @@ from .dng import (
     write_mosaic_dng,
 )
 from .flatfield import apply_profile, build_profile
+from .paths import ensure_unique_paths, path_key
 from .rawio import read_raw_frame
 
 DEFAULT_PATTERNS = ("*.ARW", "*.arw")
@@ -38,6 +39,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"No input scans found in {input_path}")
 
     output_paths = [output_dir / f"{scan_path.stem}{args.suffix}.dng" for scan_path in inputs]
+    try:
+        ensure_unique_paths(output_paths, "output DNG path")
+    except ValueError as exc:
+        parser.error(str(exc))
     for output_path in output_paths:
         if output_path.exists() and not args.dry_run:
             if args.replace_existing and not args.dry_run:
@@ -65,17 +70,22 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Using correction backend: {backend.detail}", file=sys.stderr)
     print(f"Reading correction frame: {correction_path}", file=sys.stderr)
     correction = read_raw_frame(correction_path)
-    profile = build_profile(
-        correction,
-        smooth_sigma=args.smooth_sigma,
-        clip_percentiles=(args.clip_low, args.clip_high),
-        norm_percentile=args.norm_percentile,
-        dust_correction=args.dust_correction,
-        dust_sigma=args.dust_sigma,
-        dust_threshold=args.dust_threshold,
-        dust_amount=args.dust_amount,
-        dust_max_gain=args.dust_max_gain,
-    )
+    try:
+        profile = build_profile(
+            correction,
+            smooth_sigma=args.smooth_sigma,
+            clip_percentiles=None if args.no_clip else (args.clip_low, args.clip_high),
+            norm_percentile=args.norm_percentile,
+            active_area=tuple(args.active_area) if args.active_area is not None else None,
+            use_visible_area=not args.full_raw_profile,
+            dust_correction=args.dust_correction,
+            dust_sigma=args.dust_sigma,
+            dust_threshold=args.dust_threshold,
+            dust_amount=args.dust_amount,
+            dust_max_gain=args.dust_max_gain,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
 
     use_converter = compressor != "none"
 
@@ -156,11 +166,25 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--clip-low", type=float, default=0.1, help="Low percentile clip for correction-frame outliers.")
     parser.add_argument("--clip-high", type=float, default=99.9, help="High percentile clip for correction-frame outliers.")
+    parser.add_argument("--no-clip", action="store_true", help="Disable correction-frame percentile clipping.")
     parser.add_argument(
         "--norm-percentile",
         type=float,
         default=70.0,
         help="Correction-frame percentile used as the flat-field normalization point. 70 is closest to Lightroom on the sample set.",
+    )
+    parser.add_argument(
+        "--active-area",
+        metavar=("LEFT", "TOP", "WIDTH", "HEIGHT"),
+        nargs=4,
+        type=int,
+        default=None,
+        help="Build the profile from this raw-pixel area instead of the camera-visible crop.",
+    )
+    parser.add_argument(
+        "--full-raw-profile",
+        action="store_true",
+        help="Build profile statistics from the full raw mosaic, including pixels outside the camera-visible crop.",
     )
     parser.add_argument(
         "--dust-correction",
@@ -303,7 +327,7 @@ def _sidecar_paths(path: Path) -> list[Path]:
 
 
 def _path_key(path: Path) -> str:
-    return str(path.resolve()).lower()
+    return path_key(path)
 
 
 def _choose_compressor(

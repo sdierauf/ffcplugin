@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ffc.cli import _default_originals_dir, _default_output_dir, _discover_inputs, _move_originals, _parser
+from ffc.paths import ensure_unique_paths
 
 
 def test_default_paths_are_scan_root_and_originals_subfolder(tmp_path: Path) -> None:
@@ -56,3 +57,11 @@ def test_discover_inputs_ignores_macos_appledouble_files(tmp_path: Path) -> None
     inputs = _discover_inputs(scan_dir, None, False, correction)
 
     assert inputs == [raw]
+
+
+def test_duplicate_output_paths_are_rejected(tmp_path: Path) -> None:
+    first = tmp_path / "roll1" / "DSC0001_ffc.dng"
+    second = tmp_path / "roll2" / ".." / "roll1" / "DSC0001_ffc.dng"
+
+    with pytest.raises(ValueError, match="same output DNG path"):
+        ensure_unique_paths([first, second], "output DNG path")

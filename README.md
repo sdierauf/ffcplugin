@@ -67,6 +67,8 @@ uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
 uv run ffc-apply correctionimage.ARW scans/ --norm-percentile 50
+uv run ffc-apply correctionimage.ARW scans/ --active-area 120 80 7800 5200
+uv run ffc-apply correctionimage.ARW scans/ --no-clip
 uv run ffc-apply correctionimage.ARW scans/ --dust-correction --dust-sigma 32 --dust-max-gain 1.10
 ```
 
@@ -148,8 +150,10 @@ Corrected DNGs receive an axis-aligned default crop that bounds the selected Lig
 - The CLI and Python plugin workflow write true single-sample CFA mosaic DNGs, not JPEGs and not rendered RGB TIFFs.
 - The raw decode path uses LibRaw through `rawpy`.
 - The flat-field profile is built per CFA phase from black-subtracted raw values; smoothing is done once per correction frame.
+- Profile statistics default to the camera-visible raw crop so optical-black borders do not contaminate the flat-field estimate. Use `--active-area LEFT TOP WIDTH HEIGHT` for a manual raw-pixel profile area, or `--full-raw-profile` to include the entire raw mosaic.
 - The default smoothing sigma is `192` full-resolution pixels. Use `--smooth-sigma 96` for the previous default or `--smooth-sigma 0` to disable smoothing.
 - The default flat-field normalization uses the 70th percentile of the smoothed correction frame. On the sample set, this is closer to Lightroom Classic's output than median normalization. Use `--norm-percentile 50` for the previous median behavior.
+- The profile is built from the calibration frame's black-subtracted values, but each scan is corrected with its own raw black level before that black level is added back.
 - Optional dust detail correction is available in the CLI with `--dust-correction` and in Lightroom with the remembered `Attempt dust correction` apply option. It keeps the broad smoothed flat-field profile, detects only dark calibration-frame residuals at `--dust-sigma`, and caps their extra local gain with `--dust-max-gain`. Use this only for sensor/backlight dust fixed across the calibration and scan frames.
 - If neither `dnglab` nor Adobe DNG Converter is available, output DNGs are valid but uncompressed and therefore large.
 - The DNG writer preserves raw mosaic geometry and key DNG color/camera tags. It does not yet clone every proprietary MakerNote, lens, serial, preview, Lightroom XMP, or all EXIF sub-IFDs from the source raw.

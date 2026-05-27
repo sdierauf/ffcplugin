@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -32,20 +33,37 @@ def build_profile(
     norm_percentile: float = 70.0,
     active_area: tuple[int, int, int, int] | None = None,
     active_mask: np.ndarray | None = None,
+    use_visible_area: bool = True,
     dust_correction: bool = False,
     dust_sigma: float = 32.0,
     dust_threshold: float = 0.02,
     dust_amount: float = 1.0,
     dust_max_gain: float = 1.10,
 ) -> FlatFieldProfile:
+    metadata = correction.metadata
     if active_area is not None and active_mask is not None:
         raise ValueError("Pass active_area or active_mask, not both.")
-    if active_mask is not None and active_mask.shape != correction.raw.shape:
-        raise ValueError(
-            f"Active mask shape {active_mask.shape} does not match correction raw shape {correction.raw.shape}."
-        )
+    if active_mask is not None:
+        active_mask = np.asarray(active_mask, dtype=bool)
+        if active_mask.shape != correction.raw.shape:
+            raise ValueError(
+                f"Active mask shape {active_mask.shape} does not match correction raw shape {correction.raw.shape}."
+            )
+    if active_area is None and active_mask is None and use_visible_area:
+        active_area = _metadata_active_area(metadata)
+    if active_area is not None:
+        _validate_active_area(active_area, metadata.raw_shape)
+    _validate_profile_options(
+        smooth_sigma=smooth_sigma,
+        clip_percentiles=clip_percentiles,
+        norm_percentile=norm_percentile,
+        dust_correction=dust_correction,
+        dust_sigma=dust_sigma,
+        dust_threshold=dust_threshold,
+        dust_amount=dust_amount,
+        dust_max_gain=dust_max_gain,
+    )
 
-    metadata = correction.metadata
     pattern_h, pattern_w = metadata.dng_cfa_repeat_dim
     planes: list[FlatFieldPlane] = []
 
@@ -123,12 +141,12 @@ def apply_profile(scan: RawFrame, profile: FlatFieldProfile, *, backend: Backend
     pattern_h, pattern_w = metadata.dng_cfa_repeat_dim
     corrected = np.empty_like(scan.raw, dtype=np.uint16)
 
-    for plane in profile.planes:
+    for phase_index, plane in enumerate(profile.planes):
         scan_plane = scan.raw[plane.y::pattern_h, plane.x::pattern_w]
         corrected[plane.y::pattern_h, plane.x::pattern_w] = correct_plane(
             scan_plane,
             plane.gain,
-            black=plane.black,
+            black=metadata.black_level_by_phase[phase_index],
             white=float(metadata.white_level),
             backend=backend,
         )
@@ -165,6 +183,67 @@ def _phase_active_slices(
 
 def _ceil_div(value: int, divisor: int) -> int:
     return -(-value // divisor)
+
+
+def _metadata_active_area(metadata: RawMetadata) -> tuple[int, int, int, int]:
+    left, top = metadata.crop_origin
+    width, height = metadata.crop_size
+    return left, top, width, height
+
+
+def _validate_active_area(active_area: tuple[int, int, int, int], raw_shape: tuple[int, int]) -> None:
+    left, top, width, height = active_area
+    raw_h, raw_w = raw_shape
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Active area must have positive width and height, got {active_area}.")
+    if left >= raw_w or top >= raw_h or left + width <= 0 or top + height <= 0:
+        raise ValueError(f"Active area {active_area} does not overlap raw shape {raw_shape}.")
+
+
+def _validate_profile_options(
+    *,
+    smooth_sigma: float,
+    clip_percentiles: tuple[float, float] | None,
+    norm_percentile: float,
+    dust_correction: bool,
+    dust_sigma: float,
+    dust_threshold: float,
+    dust_amount: float,
+    dust_max_gain: float,
+) -> None:
+    _require_finite("smooth_sigma", smooth_sigma)
+    if smooth_sigma < 0:
+        raise ValueError("smooth_sigma must be greater than or equal to 0.")
+
+    _require_finite("norm_percentile", norm_percentile)
+    if not 0 <= norm_percentile <= 100:
+        raise ValueError("norm_percentile must be between 0 and 100.")
+
+    if clip_percentiles is not None:
+        low_p, high_p = clip_percentiles
+        _require_finite("clip_low", low_p)
+        _require_finite("clip_high", high_p)
+        if not 0 <= low_p < high_p <= 100:
+            raise ValueError("clip_percentiles must satisfy 0 <= low < high <= 100.")
+
+    if dust_correction:
+        _require_finite("dust_sigma", dust_sigma)
+        _require_finite("dust_threshold", dust_threshold)
+        _require_finite("dust_amount", dust_amount)
+        _require_finite("dust_max_gain", dust_max_gain)
+        if dust_sigma <= 0:
+            raise ValueError("dust_sigma must be greater than 0 when dust correction is enabled.")
+        if dust_threshold < 0:
+            raise ValueError("dust_threshold must be greater than or equal to 0.")
+        if dust_amount < 0:
+            raise ValueError("dust_amount must be greater than or equal to 0.")
+        if dust_max_gain < 1:
+            raise ValueError("dust_max_gain must be greater than or equal to 1.")
+
+
+def _require_finite(name: str, value: float) -> None:
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{name} must be finite.")
 
 
 def _masked_gaussian(plane: np.ndarray, rows: slice, cols: slice, sigma: tuple[float, float]) -> np.ndarray:
@@ -261,13 +340,19 @@ def _is_full_slice(value: slice, size: int) -> bool:
     return start == 0 and stop == size and step == 1
 
 
-def _sample_active(values: np.ndarray) -> np.ndarray:
+def _sample_active(values: np.ndarray, max_samples: int = 262_144) -> np.ndarray:
+    flattened = values.reshape(-1)
+    if flattened.size <= max_samples:
+        return flattened
+
     if values.ndim == 1:
-        sample = values[::64]
-    else:
-        sample = values[::8, ::8].reshape(-1)
+        stride = max(1, math.ceil(flattened.size / max_samples))
+        return flattened[::stride]
+
+    stride = max(1, math.ceil(math.sqrt(flattened.size / max_samples)))
+    sample = values[::stride, ::stride].reshape(-1)
     if sample.size == 0:
-        return values.reshape(-1)
+        return flattened
     return sample
 
 
@@ -279,8 +364,18 @@ def _validate_compatible(scan: RawFrame, profile: FlatFieldProfile) -> None:
             f"{scan_meta.path} has raw shape {scan_meta.raw_shape}, "
             f"but correction frame has {corr_meta.raw_shape}."
         )
+    if scan_meta.dng_cfa_repeat_dim != corr_meta.dng_cfa_repeat_dim:
+        raise ValueError(
+            f"{scan_meta.path} CFA repeat dimension does not match correction frame "
+            f"({scan_meta.dng_cfa_repeat_dim} vs {corr_meta.dng_cfa_repeat_dim})."
+        )
     if tuple(scan_meta.dng_cfa_pattern) != tuple(corr_meta.dng_cfa_pattern):
         raise ValueError(
             f"{scan_meta.path} CFA pattern does not match correction frame "
             f"({scan_meta.dng_cfa_pattern} vs {corr_meta.dng_cfa_pattern})."
+        )
+    if len(scan_meta.black_level_by_phase) != len(profile.planes):
+        raise ValueError(
+            f"{scan_meta.path} has {len(scan_meta.black_level_by_phase)} black-level phases, "
+            f"but correction profile has {len(profile.planes)} planes."
         )

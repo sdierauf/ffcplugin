@@ -142,15 +142,36 @@ def _white_level(raw: rawpy.RawPy) -> int:
 
 def _crop(raw: rawpy.RawPy, raw_shape: tuple[int, int]) -> tuple[tuple[int, int], tuple[int, int]]:
     raw_h, raw_w = raw_shape
-    crop_w = int(raw.sizes.crop_width or raw.sizes.width or raw_w)
-    crop_h = int(raw.sizes.crop_height or raw.sizes.height or raw_h)
-
+    sizes = raw.sizes
     visible_w = int(raw.raw_image_visible.shape[1])
-    inferred_left = max(0, raw_w - visible_w)
-    crop_left = int(raw.sizes.crop_left_margin or inferred_left or max(0, (raw_w - crop_w) // 2))
-    crop_top = int(raw.sizes.crop_top_margin or max(0, (raw_h - crop_h) // 2))
+    visible_h = int(raw.raw_image_visible.shape[0])
+    crop_w = _first_positive_int(sizes.crop_width, sizes.width, visible_w, raw_w)
+    crop_h = _first_positive_int(sizes.crop_height, sizes.height, visible_h, raw_h)
+
+    if sizes.crop_width > 0 and sizes.crop_height > 0:
+        crop_left = int(sizes.crop_left_margin)
+        crop_top = int(sizes.crop_top_margin)
+    else:
+        crop_left = int(sizes.left_margin or 0)
+        crop_top = int(sizes.top_margin or 0)
+
+    crop_left = _clamp_int(crop_left, 0, max(0, raw_w - 1))
+    crop_top = _clamp_int(crop_top, 0, max(0, raw_h - 1))
+    crop_w = _clamp_int(crop_w, 1, raw_w - crop_left)
+    crop_h = _clamp_int(crop_h, 1, raw_h - crop_top)
 
     return (crop_left, crop_top), (crop_w, crop_h)
+
+
+def _first_positive_int(*values: int) -> int:
+    for value in values:
+        if value > 0:
+            return int(value)
+    return 1
+
+
+def _clamp_int(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, int(value)))
 
 
 def _as_shot_neutral(camera_wb: list[float]) -> tuple[float, float, float] | None:
@@ -165,4 +186,3 @@ def _unique_camera_model(make: str, model: str) -> str:
     if model.lower().startswith(nice_make.lower()):
         return model
     return f"{nice_make} {model}".strip()
-
