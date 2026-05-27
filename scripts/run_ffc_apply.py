@@ -92,7 +92,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output-subdir", default="flatfield-corrected", help="Default output subfolder name.")
     parser.add_argument("--result-file", help="Write Lightroom-friendly key/value results here.")
     parser.add_argument("--progress-file", help="Write Lightroom-friendly progress key/value updates here.")
-    parser.add_argument("--backend", choices=("auto", "numpy", "numexpr", "mlx"), default="auto")
+    parser.add_argument("--backend", choices=("auto", "numpy", "numexpr"), default="auto")
     parser.add_argument("--compressor", choices=("auto", "adobe", "dnglab", "none"), default="auto")
     parser.add_argument("--compression", choices=("auto", "none", "lossless-jpeg", "lossless-jxl"), default="auto")
     parser.add_argument("--dnglab", help="Optional dnglab executable path.")

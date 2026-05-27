@@ -13,9 +13,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-apple = [
-  "mlx>=0.25; platform_system == 'Darwin' and platform_machine == 'arm64'",
-]
 dev = [
   "pytest>=8.0",
 ]

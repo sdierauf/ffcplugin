@@ -20,14 +20,14 @@ python3 scripts/init_lightroom_config.py
 The script:
 
 - installs missing Homebrew tools used by the project: `uv`, `dnglab`, and `exiftool`;
-- runs `uv sync --extra apple --extra dev` to create/update `.venv`;
+- runs `uv sync --extra dev` to create/update `.venv`;
 - writes `lightroom-flatfield.lrplugin/ffcplugin.config` with absolute paths, including this repo's `.venv/bin/python`.
 
 If you prefer to install Homebrew dependencies yourself:
 
 ```sh
 brew install uv dnglab exiftool
-uv sync --extra apple --extra dev
+uv sync --extra dev
 python3 scripts/init_lightroom_config.py --no-install --skip-uv-sync
 ```
 
@@ -37,7 +37,7 @@ Optional: install Adobe DNG Converter if you want Adobe's DNG compressor or `--c
 brew install --cask adobe-dng-converter
 ```
 
-The `apple` extra installs MLX for the optional Apple Silicon backend. The default backend uses NumExpr when available.
+The default backend uses NumExpr when available.
 
 ## Standalone CLI
 
@@ -62,7 +62,7 @@ uv run ffc-apply correctionimage.ARW scans/ --keep-originals
 uv run ffc-apply correctionimage.ARW scans/ --output corrected/
 uv run ffc-apply correctionimage.ARW scans/ --originals-dir raw-originals
 uv run ffc-apply correctionimage.ARW scans/ --include "*.NEF" --include "*.CR3" --recursive
-uv run ffc-apply correctionimage.ARW scans/ --backend mlx --compression lossless-jxl
+uv run ffc-apply correctionimage.ARW scans/ --backend numexpr --numexpr-threads 8
 uv run ffc-apply correctionimage.ARW scans/ --compressor dnglab
 uv run ffc-apply correctionimage.ARW scans/ --compressor adobe
 uv run ffc-apply correctionimage.ARW scans/ --smooth-sigma 0 --compression none
@@ -75,7 +75,6 @@ Backends:
 - `auto`: uses NumExpr when available, otherwise NumPy.
 - `numpy`: vectorized NumPy CPU path.
 - `numexpr`: multi-threaded native expression evaluation.
-- `mlx`: optional Apple Silicon/Metal path for the elementwise correction step.
 
 ## Lightroom Plugin
 

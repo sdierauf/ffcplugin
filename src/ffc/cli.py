@@ -193,7 +193,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--backend",
-        choices=("auto", "numpy", "numexpr", "mlx"),
+        choices=("auto", "numpy", "numexpr"),
         default="auto",
         help="Math backend for applying the gain map.",
     )

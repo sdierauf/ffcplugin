@@ -23,7 +23,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=0, help="Limit input files for quick runs.")
     parser.add_argument("--smooth-sigma", type=float, default=192.0, help="Correction-frame smoothing sigma.")
     parser.add_argument("--numexpr-threads", type=int, default=None, help="NumExpr thread count.")
-    parser.add_argument("--backends", nargs="+", default=["numpy", "numexpr", "mlx"], choices=["numpy", "numexpr", "mlx"])
+    parser.add_argument("--backends", nargs="+", default=["numpy", "numexpr"], choices=["numpy", "numexpr"])
     return parser.parse_args()
 
 

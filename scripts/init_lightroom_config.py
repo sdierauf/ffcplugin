@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
         help="Config file to write. Default: lightroom-flatfield.lrplugin/ffcplugin.config",
     )
     parser.add_argument("--python", dest="python_command", help="Python executable to store in the config.")
-    parser.add_argument("--backend", default="auto", choices=("auto", "numpy", "numexpr", "mlx"))
+    parser.add_argument("--backend", default="auto", choices=("auto", "numpy", "numexpr"))
     parser.add_argument("--compressor", default="auto", choices=("auto", "dnglab", "adobe", "none"))
     parser.add_argument(
         "--compression",
@@ -54,7 +54,7 @@ def main() -> int:
         raise SystemExit("uv is required but was not found.")
 
     if not args.skip_uv_sync:
-        run([str(uv), "sync", "--extra", "apple", "--extra", "dev"], cwd=repo_root)
+        run([str(uv), "sync", "--extra", "dev"], cwd=repo_root)
 
     python_command = Path(args.python_command).expanduser() if args.python_command else repo_root / ".venv" / bin_dir() / python_name()
     if not python_command.exists():
