@@ -70,6 +70,7 @@ uv run ffc-apply correctionimage.ARW scans/ --norm-percentile 50
 uv run ffc-apply correctionimage.ARW scans/ --active-area 120 80 7800 5200
 uv run ffc-apply correctionimage.ARW scans/ --no-clip
 uv run ffc-apply correctionimage.ARW scans/ --dust-correction --dust-sigma 32 --dust-max-gain 1.10
+uv run ffc-apply correctionimage.ARW scans/ --exact-smoothing
 ```
 
 Backends:
@@ -156,6 +157,8 @@ Corrected DNGs receive an axis-aligned default crop that bounds the selected Lig
 - The flat-field profile is built per CFA phase from black-subtracted raw values; smoothing is done once per correction frame.
 - Profile statistics default to the camera-visible raw crop so optical-black borders do not contaminate the flat-field estimate. Use `--active-area LEFT TOP WIDTH HEIGHT` for a manual raw-pixel profile area, or `--full-raw-profile` to include the entire raw mosaic.
 - The default smoothing sigma is `192` full-resolution pixels. Use `--smooth-sigma 96` for the previous default or `--smooth-sigma 0` to disable smoothing.
+- Such a wide Gaussian is evaluated coarse-to-fine: each CFA plane is block-averaged, smoothed at the equivalent reduced sigma, and bilinearly resampled, then the four independent phases are smoothed in parallel. Profile construction drops from roughly 40 s to about 1 s on a 42 MP frame, while corrected pixels change by at most 1 DN. Pass `--exact-smoothing` to force the full-resolution convolution when you need a bit-exact reference profile.
+- The coarse-to-fine path is accurate inside the profile area (measured drift `0.007%` on the sample set). Pixels *outside* a narrow `--active-area` or Lightroom crop are extrapolated less exactly, up to a few percent of local gain; they sit outside the area you calibrated for and are normally hidden by the DNG crop.
 - The default flat-field normalization uses the 70th percentile of the smoothed correction frame. On the sample set, this is closer to Lightroom Classic's output than median normalization. Use `--norm-percentile 50` for the previous median behavior.
 - The profile is built from the calibration frame's black-subtracted values, but each scan is corrected with its own raw black level before that black level is added back.
 - Optional dust detail correction is available in the CLI with `--dust-correction` and in Lightroom with the remembered `Attempt dust correction` apply option. It keeps the broad smoothed flat-field profile, detects only dark calibration-frame residuals at `--dust-sigma`, and caps their extra local gain with `--dust-max-gain`. Use this only for sensor/backlight dust fixed across the calibration and scan frames.

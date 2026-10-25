@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage import gaussian_filter, map_coordinates
 
 from .accelerate import Backend, correct_plane
 from .rawio import RawFrame, RawMetadata
@@ -39,7 +41,19 @@ def build_profile(
     dust_threshold: float = 0.02,
     dust_amount: float = 1.0,
     dust_max_gain: float = 1.10,
+    smoothing_factor: int | None = None,
+    workers: int | None = None,
 ) -> FlatFieldProfile:
+    """Build a reusable flat-field profile from a correction frame.
+
+    ``smoothing_factor`` selects the coarse-to-fine smoothing grid used for the
+    very large Gaussian sigmas this profile needs. ``None`` picks a factor from
+    ``smooth_sigma`` automatically; ``1`` forces the exact full-resolution
+    convolution (slow, useful for reference comparisons).
+
+    ``workers`` threads independent CFA phases. Phase results are collected in
+    order, so the profile is deterministic regardless of thread count.
+    """
     metadata = correction.metadata
     if active_area is not None and active_mask is not None:
         raise ValueError("Pass active_area or active_mask, not both.")
@@ -65,9 +79,10 @@ def build_profile(
     )
 
     pattern_h, pattern_w = metadata.dng_cfa_repeat_dim
-    planes: list[FlatFieldPlane] = []
+    phases = _phase_positions(pattern_h, pattern_w)
 
-    for phase_index, (phase_y, phase_x) in enumerate(_phase_positions(pattern_h, pattern_w)):
+    def build_phase(item: tuple[int, tuple[int, int]]) -> FlatFieldPlane:
+        phase_index, (phase_y, phase_x) = item
         black = metadata.black_level_by_phase[phase_index]
         plane = correction.raw[phase_y::pattern_h, phase_x::pattern_w].astype(np.float32, copy=True)
         plane -= black
@@ -101,15 +116,8 @@ def build_profile(
         detail_source = plane.copy() if dust_correction else None
         if smooth_sigma > 0:
             sigma = (smooth_sigma / pattern_h, smooth_sigma / pattern_w)
-            if crop_mask is not None:
-                plane = _masked_gaussian_mask(plane, crop_mask, sigma)
-                active_plane = active_values()
-            elif active_area is None:
-                plane = gaussian_filter(plane, sigma=sigma, mode="nearest", truncate=3.0).astype(np.float32, copy=False)
-                active_plane = plane[crop_rows, crop_cols]
-            else:
-                plane = _masked_gaussian(plane, crop_rows, crop_cols, sigma)
-                active_plane = plane[crop_rows, crop_cols]
+            plane = _smooth_active_region(plane, crop_rows, crop_cols, crop_mask, sigma, smoothing_factor)
+            active_plane = active_values()
 
         if detail_source is not None:
             dust_sigma_by_phase = (dust_sigma / pattern_h, dust_sigma / pattern_w)
@@ -123,13 +131,23 @@ def build_profile(
                 threshold=dust_threshold,
                 amount=dust_amount,
                 max_gain=dust_max_gain,
+                smoothing_factor=smoothing_factor,
             )
             active_plane = active_values()
 
         norm = float(np.percentile(_sample_active(active_plane), norm_percentile))
         eps = max(1.0, norm * 0.001)
         gain = (norm / np.maximum(plane, eps)).astype(np.float32, copy=False)
-        planes.append(FlatFieldPlane(phase_y, phase_x, black, norm, gain))
+        return FlatFieldPlane(phase_y, phase_x, black, norm, gain)
+
+    jobs = list(enumerate(phases))
+    worker_count = _worker_count(workers, len(jobs))
+    if worker_count > 1:
+        # Phases are independent; collect in input order so results stay deterministic.
+        with ThreadPoolExecutor(max_workers=worker_count) as pool:
+            planes = list(pool.map(build_phase, jobs))
+    else:
+        planes = [build_phase(job) for job in jobs]
 
     return FlatFieldProfile(metadata=metadata, planes=planes)
 
@@ -246,6 +264,173 @@ def _require_finite(name: str, value: float) -> None:
         raise ValueError(f"{name} must be finite.")
 
 
+"""Fraction of the smoothed weight map that still counts as real signal.
+
+The extrapolated band just outside a small active mask is a ratio of two
+near-zero Gaussian weights, so it is numerically meaningless. Pixels below this
+floor snap to the active-area median instead of being extrapolated.
+"""
+_COARSE_WEIGHT_FLOOR = 1.0e-3
+
+
+def _worker_count(workers: int | None, jobs: int) -> int:
+    if jobs <= 1:
+        return 1
+    if workers is not None:
+        return max(1, min(int(workers), jobs))
+    return max(1, min(jobs, os.cpu_count() or 1))
+
+
+def _smoothing_factor_for(
+    sigma: tuple[float, float],
+    shape: tuple[int, int],
+    requested: int | None,
+) -> int:
+    if requested is not None:
+        if int(requested) < 1:
+            raise ValueError("smoothing_factor must be greater than or equal to 1.")
+        return int(requested)
+    if sigma[0] <= 0 or sigma[1] <= 0:
+        return 1
+
+    smallest = min(float(sigma[0]), float(sigma[1]))
+    if smallest < 16.0:
+        return 1
+
+    # Keep the coarse sigma at >= 16 full-resolution pixels so the coarse grid
+    # still resolves the field with a wide margin.
+    factor = 1 << int(math.floor(math.log2(smallest / 16.0)))
+    factor = min(factor, 8)
+    if factor > 1 and min(shape) // factor < 64:
+        return 1
+    return factor
+
+
+def _coarse_sigma(sigma: tuple[float, float], factor: int) -> tuple[float, float]:
+    """Coarse-grid sigma that reproduces the full-resolution Gaussian.
+
+    The block mean used to downsample is itself a box filter with variance
+    ``factor**2 / 12``, so its variance is removed before smoothing.
+    """
+    return tuple(
+        max(1.0e-3, math.sqrt(max(0.0, (float(value) / factor) ** 2 - 1.0 / 12.0)))
+        for value in sigma
+    )
+
+
+def _block_mean(values: np.ndarray, factor: int) -> np.ndarray:
+    values = np.ascontiguousarray(values)
+    height, width = values.shape
+    blocks_h = -(-height // factor)
+    blocks_w = -(-width // factor)
+    if blocks_h * factor != height or blocks_w * factor != width:
+        values = np.pad(values, ((0, blocks_h * factor - height), (0, blocks_w * factor - width)), mode="edge")
+    return values.reshape(blocks_h, factor, blocks_w, factor).mean(axis=(1, 3), dtype=np.float32)
+
+
+def _block_overlap(size: int, start: int, stop: int, factor: int) -> np.ndarray:
+    blocks = -(-size // factor)
+    lower = np.arange(blocks, dtype=np.float64) * factor
+    upper = lower + factor
+    start = max(0, int(start))
+    stop = min(size, int(stop))
+    covered = np.clip(np.minimum(upper, stop) - np.maximum(lower, start), 0.0, float(factor))
+    width = np.clip(np.minimum(upper, float(size)) - lower, 1.0e-6, None)
+    return (covered / width).astype(np.float32)
+
+
+def _coarse_upsample(small: np.ndarray, shape: tuple[int, int], factor: int) -> np.ndarray:
+    height, width = shape
+    rows = (np.arange(height, dtype=np.float64) + 0.5) / factor - 0.5
+    cols = (np.arange(width, dtype=np.float64) + 0.5) / factor - 0.5
+    np.clip(rows, 0.0, small.shape[0] - 1.0, out=rows)
+    np.clip(cols, 0.0, small.shape[1] - 1.0, out=cols)
+    grid = np.meshgrid(rows, cols, indexing="ij")
+    return map_coordinates(small, grid, order=1, mode="nearest").astype(np.float32, copy=False)
+
+
+def _active_median(
+    plane: np.ndarray,
+    rows: slice,
+    cols: slice,
+    active_mask: np.ndarray | None,
+) -> float:
+    if active_mask is not None:
+        return float(np.median(_sample_active(plane[active_mask])))
+    return float(np.median(plane[rows, cols][::8, ::8]))
+
+
+def _is_plain_region(rows: slice, cols: slice, shape: tuple[int, int], active_mask: np.ndarray | None) -> bool:
+    return active_mask is None and _is_full_slice(rows, shape[0]) and _is_full_slice(cols, shape[1])
+
+
+def _smooth_active_region(
+    plane: np.ndarray,
+    rows: slice,
+    cols: slice,
+    active_mask: np.ndarray | None,
+    sigma: tuple[float, float],
+    requested_factor: int | None = None,
+) -> np.ndarray:
+    """Gaussian-smooth ``plane`` inside the active region only.
+
+    Large sigmas are evaluated on a coarse grid (downsample, smooth, upsample)
+    because ``scipy.ndimage.gaussian_filter`` is a direct convolution whose cost
+    grows with sigma. ``requested_factor=1`` forces the exact convolution.
+    """
+    factor = _smoothing_factor_for(sigma, plane.shape, requested_factor)
+    if factor <= 1:
+        return _smooth_active_region_exact(plane, rows, cols, active_mask, sigma)
+
+    small = _block_mean(plane, factor)
+    small_sigma = _coarse_sigma(sigma, factor)
+
+    if _is_plain_region(rows, cols, plane.shape, active_mask):
+        smoothed = gaussian_filter(small, sigma=small_sigma, mode="nearest", truncate=3.0)
+        return _coarse_upsample(smoothed.astype(np.float32, copy=False), plane.shape, factor)
+
+    weights = _coarse_weights(plane.shape, rows, cols, active_mask, factor)
+    values = gaussian_filter(small * weights, sigma=small_sigma, mode="constant", cval=0.0, truncate=3.0)
+    total = gaussian_filter(weights, sigma=small_sigma, mode="constant", cval=0.0, truncate=3.0)
+
+    full_values = _coarse_upsample(values.astype(np.float32, copy=False), plane.shape, factor)
+    full_weights = _coarse_upsample(total.astype(np.float32, copy=False), plane.shape, factor)
+    usable = full_weights > _COARSE_WEIGHT_FLOOR
+    np.divide(full_values, full_weights, out=full_values, where=usable)
+    full_values[~usable] = _active_median(plane, rows, cols, active_mask)
+    return full_values
+
+
+def _coarse_weights(
+    shape: tuple[int, int],
+    rows: slice,
+    cols: slice,
+    active_mask: np.ndarray | None,
+    factor: int,
+) -> np.ndarray:
+    if active_mask is not None:
+        return _block_mean(active_mask.astype(np.float32, copy=False), factor)
+
+    height, width = shape
+    row_weights = _block_overlap(height, rows.start or 0, height if rows.stop is None else rows.stop, factor)
+    col_weights = _block_overlap(width, cols.start or 0, width if cols.stop is None else cols.stop, factor)
+    return np.multiply.outer(row_weights, col_weights).astype(np.float32, copy=False)
+
+
+def _smooth_active_region_exact(
+    plane: np.ndarray,
+    rows: slice,
+    cols: slice,
+    active_mask: np.ndarray | None,
+    sigma: tuple[float, float],
+) -> np.ndarray:
+    if active_mask is not None:
+        return _masked_gaussian_mask(plane, active_mask, sigma)
+    if _is_full_slice(rows, plane.shape[0]) and _is_full_slice(cols, plane.shape[1]):
+        return gaussian_filter(plane, sigma=sigma, mode="nearest", truncate=3.0).astype(np.float32, copy=False)
+    return _masked_gaussian(plane, rows, cols, sigma)
+
+
 def _masked_gaussian(plane: np.ndarray, rows: slice, cols: slice, sigma: tuple[float, float]) -> np.ndarray:
     mask = np.zeros_like(plane, dtype=np.float32)
     mask[rows, cols] = 1.0
@@ -280,16 +465,12 @@ def _add_dark_detail_layer(
     threshold: float,
     amount: float,
     max_gain: float,
+    smoothing_factor: int | None = None,
 ) -> np.ndarray:
     if amount <= 0 or max_gain <= 1 or sigma[0] <= 0 or sigma[1] <= 0:
         return broad
 
-    if active_mask is not None:
-        fine = _masked_gaussian_mask(source, active_mask, sigma)
-    elif _is_full_slice(rows, source.shape[0]) and _is_full_slice(cols, source.shape[1]):
-        fine = gaussian_filter(source, sigma=sigma, mode="nearest", truncate=3.0).astype(np.float32, copy=False)
-    else:
-        fine = _masked_gaussian(source, rows, cols, sigma)
+    fine = _smooth_active_region(source, rows, cols, active_mask, sigma, smoothing_factor)
 
     corrected = broad.copy()
     min_factor = 1.0 / float(max_gain)

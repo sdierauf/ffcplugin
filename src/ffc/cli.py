@@ -83,6 +83,7 @@ def main(argv: list[str] | None = None) -> int:
             dust_threshold=args.dust_threshold,
             dust_amount=args.dust_amount,
             dust_max_gain=args.dust_max_gain,
+            smoothing_factor=1 if args.exact_smoothing else None,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -185,6 +186,11 @@ def _parser() -> argparse.ArgumentParser:
         "--full-raw-profile",
         action="store_true",
         help="Build profile statistics from the full raw mosaic, including pixels outside the camera-visible crop.",
+    )
+    parser.add_argument(
+        "--exact-smoothing",
+        action="store_true",
+        help="Force the exact full-resolution Gaussian (slow, ~40s on a 42 MP frame). Matches the pre-optimization profile bit for bit.",
     )
     parser.add_argument(
         "--dust-correction",
