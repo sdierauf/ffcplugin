@@ -73,6 +73,11 @@ uv run ffc-apply correctionimage.ARW scans/ --dust-correction --dust-sigma 32 --
 uv run ffc-apply correctionimage.ARW scans/ --exact-smoothing
 ```
 
+Scans are discovered with a digit-aware numeric sort, processed in that order, and their
+DNGs are created in that same order, so `scan2` comes before `scan10` both in the log and
+on disk. Both converters run sequentially for the same reason; Adobe DNG Converter's
+`-mp` multiprocess mode is deliberately not used.
+
 Backends:
 
 - `auto`: uses NumExpr when available, otherwise NumPy.

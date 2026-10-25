@@ -49,8 +49,8 @@ def compress_with_adobe_dng_converter(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     options = ["-c"] if mode == "lossless-jpeg" else ["-losslessJXL"]
-    if len(input_paths) > 1:
-        options.append("-mp")
+    # No "-mp": Adobe's multiprocess mode converts in whatever order it likes, which
+    # scrambles the creation order of the output files. Sequence matters for scans.
     cmd = [str(converter_path), *options, "-d", str(output_dir), *map(str, input_paths)]
     result = subprocess.run(cmd, text=True, capture_output=True, check=False)
     if result.returncode != 0:
@@ -66,6 +66,8 @@ def compress_with_adobe_dng_converter(
 
 def compress_with_dnglab(input_paths: list[Path], output_dir: Path, *, dnglab_path: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
+    # Sequential on purpose: dnglab has no batch mode, and converting in order keeps
+    # the output files' creation order aligned with the scan order.
     for input_path in input_paths:
         output_path = output_dir / input_path.name
         cmd = [

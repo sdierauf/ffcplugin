@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from .rawio import read_raw_frame
 
 DEFAULT_PATTERNS = ("*.ARW", "*.arw")
 DEFAULT_ORIGINALS_DIR = "originals"
+_NATURAL_CHUNK = re.compile(r"(\d+)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -95,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
         write_dir = Path(tmp) if use_converter else output_dir
         temp_paths: list[Path] = []
 
+        # Ordering is load-bearing: `inputs` is naturally sorted and this loop is
+        # strictly sequential, so output files are created in scan order. Do not
+        # parallelise this loop without an ordered write stage.
         for index, scan_path in enumerate(inputs, start=1):
             final_path = output_paths[index - 1]
             write_path = write_dir / final_path.name
@@ -266,7 +271,23 @@ def _discover_inputs(input_path: Path, patterns: list[str] | None, recursive: bo
         for path in iterator:
             if path.is_file() and not _is_ignored_input(path) and path.resolve() != correction_path.resolve():
                 results.append(path)
-    return sorted(set(results))
+    # Discovery order defines processing order, and processing order defines the
+    # order output files are created in. Sort numerically so scan10 follows scan2
+    # instead of being interleaved lexicographically.
+    return sorted(set(results), key=_natural_sort_key)
+
+
+def _natural_sort_key(path: Path) -> tuple[tuple[int, int, str], ...]:
+    """Digit-aware sort key: scan2 < scan10, unlike plain string comparison."""
+    key: list[tuple[int, int, str]] = []
+    for chunk in _NATURAL_CHUNK.split(str(path)):
+        if not chunk:
+            continue
+        if chunk.isdigit():
+            key.append((0, int(chunk), ""))
+        else:
+            key.append((1, 0, chunk.casefold()))
+    return tuple(key)
 
 
 def _is_ignored_input(path: Path) -> bool:
